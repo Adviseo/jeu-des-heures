@@ -44,6 +44,12 @@
                 <button class="btn-new-episode" id="btnNewEpisode" title="Créer un nouvel épisode">➕ Nouveau</button>
             </div>
             
+            <div class="admin-code" id="adminCodeSection" style="display:none;">
+                <span class="admin-code-label">Code joueurs :</span>
+                <span class="admin-code-value" id="codeDisplay">—</span>
+                <button class="btn-code-gen" id="btnGenCode" title="Générer un nouveau code">🎲 Nouveau code</button>
+            </div>
+
             <div class="admin-migration" id="migrationContainer" style="display: none;">
                 <button class="btn-migrate" id="btnMigrate">📤 Importer partie locale vers Supabase</button>
             </div>
@@ -74,11 +80,16 @@
             <form id="betForm" class="bet-form">
                 <div class="form-group">
                     <label for="playerName">Joueur</label>
-                    <input type="text" id="playerName" placeholder="Nom du joueur" autocomplete="off" required>
+                    <input type="text" id="playerName" placeholder="Nom du joueur" autocomplete="off" list="playerSuggestions" required>
+                    <datalist id="playerSuggestions"></datalist>
                 </div>
                 <div class="form-group">
                     <label for="betTime">Heure prédite</label>
                     <input type="time" id="betTime" step="60" required>
+                </div>
+                <div class="form-group" id="codeGroup" style="display:none;">
+                    <label for="betCode">Code de partie</label>
+                    <input type="text" id="betCode" placeholder="Code à 4 chiffres" maxlength="4" autocomplete="off" inputmode="numeric">
                 </div>
                 <button type="submit" class="btn-add" id="btnAdd">
                     <span class="btn-icon">➕</span> Ajouter le pari

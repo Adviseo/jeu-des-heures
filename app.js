@@ -18,7 +18,8 @@
         episodeNumber: 12,  // Default episode number
         episodeId: null,    // Supabase episode UUID
         isSupabaseConnected: false,
-        dbTimeOffset: 0     // Offset between client time and DB time in milliseconds
+        dbTimeOffset: 0,    // Offset between client time and DB time in milliseconds
+        betCode: null       // 4-digit code required to submit a bet (null = no code required)
     };
 
     // ---- Supabase Client Instantiation ----
@@ -78,6 +79,11 @@
     const leaderboardContainer = $('#leaderboardContainer');
     
     // Supabase config elements
+    const betCodeInput = $('#betCode');
+    const codeGroup = $('#codeGroup');
+    const adminCodeSection = $('#adminCodeSection');
+    const codeDisplay = $('#codeDisplay');
+
     const btnToggleConfig = $('#btnToggleConfig');
     const supabaseConfigDropdown = $('#supabaseConfigDropdown');
     const sbUrlInput = $('#sbUrl');
@@ -350,6 +356,7 @@
                 state.episodeId = currentEpisode.id;
                 state.episodeNumber = currentEpisode.number;
                 state.gameEnded = currentEpisode.status === 'completed';
+                state.betCode = currentEpisode.status === 'active' ? (currentEpisode.bet_code || null) : null;
                 
                 // Parse announced time
                 if (currentEpisode.announced_at) {
@@ -398,12 +405,18 @@
                 state.gameEnded = false;
                 state.endTime = null;
                 state.endTimeStr = null;
+                state.betCode = null;
                 episodeLabel.textContent = `AUCUN ÉPISODE`;
             }
+
+            // Populate player name autocomplete
+            const { data: allPlayers } = await supabase.from('players').select('name').order('name');
+            if (allPlayers) populatePlayerSuggestions(allPlayers.map(p => p.name));
 
             renderPlayers();
             renderTimeline();
             showSections();
+            updateCodeUI();
             renderLeaderboard();
         } catch (e) {
             console.error("Erreur de synchronisation Supabase", e);
@@ -521,6 +534,21 @@
         }
     });
 
+    // ---- Player autocomplete ----
+    function populatePlayerSuggestions(names) {
+        const dl = document.getElementById('playerSuggestions');
+        if (!dl) return;
+        dl.innerHTML = names.map(n => `<option value="${escapeHtml(n)}">`).join('');
+    }
+
+    // ---- Code UI (show/hide field + admin display) ----
+    function updateCodeUI() {
+        const needCode = state.isSupabaseConnected && state.betCode && !state.gameEnded;
+        if (codeGroup) codeGroup.style.display = needCode ? 'block' : 'none';
+        if (adminCodeSection) adminCodeSection.style.display = (isAdmin && state.isSupabaseConnected && !state.gameEnded) ? 'flex' : 'none';
+        if (codeDisplay) codeDisplay.textContent = state.betCode || '— (aucun)';
+    }
+
     // ---- Time helpers ----
     function minutesToHHMMSS(minutes) {
         const h = Math.floor(minutes / 60) % 24;
@@ -559,6 +587,16 @@
         if (reliableTime.totalMinutes < BET_WINDOW_START) {
             showError("Les pronostics n'ouvrent qu'à 21h00 !");
             return;
+        }
+
+        // Code check
+        if (state.isSupabaseConnected && state.betCode) {
+            const entered = betCodeInput ? betCodeInput.value.trim() : '';
+            if (entered !== state.betCode) {
+                showError('Code de partie incorrect !');
+                if (betCodeInput) betCodeInput.value = '';
+                return;
+            }
         }
 
         if (state.isSupabaseConnected && supabase) {
@@ -651,6 +689,7 @@
 
         playerName.value = '';
         betTime.value = '';
+        if (betCodeInput) betCodeInput.value = '';
         playerName.focus();
         formError.textContent = '';
     }
@@ -745,7 +784,8 @@
         finSection.style.display = (hasBets && !state.gameEnded && isAdmin) ? 'block' : 'none';
         betSection.style.display = state.gameEnded ? 'none' : 'block';
         btnReset.style.display = (state.gameEnded && isAdmin) ? 'inline-block' : 'none';
-        
+        updateCodeUI();
+
         // Only admin sees the New Episode and Episode form
         // Handled directly via display styles of adminBar in HTML init
     }
@@ -1184,18 +1224,33 @@
             }
         });
 
+        // Code generator button
+        const btnGenCode = document.getElementById('btnGenCode');
+        if (btnGenCode) {
+            btnGenCode.addEventListener('click', async () => {
+                const newCode = String(Math.floor(1000 + Math.random() * 9000));
+                if (state.isSupabaseConnected && supabase && state.episodeId) {
+                    await supabase.from('episodes').update({ bet_code: newCode }).eq('id', state.episodeId);
+                    await syncWithSupabase();
+                    alert(`Nouveau code : ${newCode}\nEnvoie-le dans le groupe !`);
+                }
+            });
+        }
+
         // Click on "+" to quickly launch next episode
         btnNewEpisode.addEventListener('click', async () => {
             const nextEp = state.episodeNumber + 1;
             if (state.isSupabaseConnected && supabase) {
                 if (confirm(`Lancer l'épisode ${nextEp} ? Cela va clôturer l'épisode actuel.`)) {
                     try {
+                        const newCode = String(Math.floor(1000 + Math.random() * 9000));
                         await supabase.from('episodes').update({ status: 'completed' });
                         const { error } = await supabase
                             .from('episodes')
-                            .insert({ number: nextEp, status: 'active' });
+                            .insert({ number: nextEp, status: 'active', bet_code: newCode });
                         if (error) throw error;
                         await syncWithSupabase();
+                        alert(`Épisode ${nextEp} lancé !\nCode de partie : ${newCode}\nEnvoie-le dans le groupe !`);
                     } catch (e) {
                         console.error("Impossible de créer l'épisode", e);
                     }

@@ -4,7 +4,7 @@
   "private": true,
   "description": "Le Jeu des Heures — pari sur l'annonce de Denis (Koh Lanta).",
   "scripts": {
-    "start": "serve -l tcp://0.0.0.0:${PORT:-3000} -n .",
+    "start": "serve -l $PORT -n .",
     "dev": "serve -l 5173 -n ."
   },
   "dependencies": {

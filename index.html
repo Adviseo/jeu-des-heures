@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Le Jeu des Heures - Koh Lanta</title>
+    <meta name="description" content="Application de paris pour le Jeu des Heures de Koh Lanta. Enregistrez les pronostics et suivez en direct !">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- Supabase JS Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Particle background -->
+    <div class="particles" id="particles"></div>
+
+    <!-- Admin Bar -->
+    <div class="admin-bar" id="adminBar" style="display:none;">
+        <div class="admin-row-top">
+            <span class="admin-badge">🔒 ADMIN</span>
+            
+            <div class="admin-supabase-config">
+                <button class="btn-admin-toggle-config" id="btnToggleConfig">⚙️ Connexion Supabase</button>
+                <div class="supabase-config-dropdown" id="supabaseConfigDropdown" style="display: none;">
+                    <input type="text" id="sbUrl" placeholder="Supabase Project URL" autocomplete="off">
+                    <input type="password" id="sbKey" placeholder="Supabase Anon Key" autocomplete="off">
+                    <div class="supabase-config-buttons">
+                        <button id="btnSaveSbConfig">Connexion</button>
+                        <button id="btnDisconnectSb">Déconnecter</button>
+                    </div>
+                </div>
+            </div>
+            
+            <span id="sbConnectionStatus" class="connection-status disconnected">Local Storage</span>
+        </div>
+        
+        <div class="admin-row-bottom">
+            <div class="admin-episode">
+                <label for="episodeNumber">Épisode actif</label>
+                <input type="number" id="episodeNumber" min="1" max="99" value="12">
+                <button class="btn-episode-save" id="btnEpisodeSave">Appliquer</button>
+                <button class="btn-new-episode" id="btnNewEpisode" title="Créer un nouvel épisode">➕ Nouveau</button>
+            </div>
+            
+            <div class="admin-migration" id="migrationContainer" style="display: none;">
+                <button class="btn-migrate" id="btnMigrate">📤 Importer partie locale vers Supabase</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-torch left-torch">🔥</div>
+        <div class="header-content">
+            <h1 class="title">LE JEU DES HEURES</h1>
+            <p class="subtitle">KOH LANTA — <span id="episodeLabel">ÉPISODE 12</span></p>
+        </div>
+        <div class="header-torch right-torch">🔥</div>
+    </header>
+
+    <!-- Live Clock -->
+    <section class="clock-section">
+        <div class="clock-label">HEURE ACTUELLE</div>
+        <div class="clock" id="liveClock">--:--:--</div>
+        <div class="clock-status" id="clockStatus">En attente des pronostics…</div>
+    </section>
+
+    <!-- Bet Input -->
+    <section class="bet-section" id="betSection">
+        <div class="bet-card">
+            <h2 class="section-title">🎯 Nouveau Pronostic</h2>
+            <form id="betForm" class="bet-form">
+                <div class="form-group">
+                    <label for="playerName">Joueur</label>
+                    <input type="text" id="playerName" placeholder="Nom du joueur" autocomplete="off" required>
+                </div>
+                <div class="form-group">
+                    <label for="betTime">Heure prédite</label>
+                    <input type="time" id="betTime" step="60" required>
+                </div>
+                <button type="submit" class="btn-add" id="btnAdd">
+                    <span class="btn-icon">➕</span> Ajouter le pari
+                </button>
+                <div class="form-error" id="formError"></div>
+            </form>
+        </div>
+    </section>
+
+    <!-- Players List -->
+    <section class="players-section" id="playersSection">
+        <h2 class="section-title">🏝️ Pronostics enregistrés <span class="player-count" id="playerCount">(0)</span></h2>
+        <div class="players-list" id="playersList">
+            <div class="empty-state" id="emptyState">
+                <div class="empty-icon">🌴</div>
+                <p>Aucun pronostic pour l'instant.<br>Les paris ouvrent à 21h00 !</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Timeline -->
+    <section class="timeline-section" id="timelineSection" style="display:none;">
+        <h2 class="section-title">📊 Timeline en direct</h2>
+        <div class="timeline-container">
+            <div class="timeline-track" id="timelineTrack">
+                <div class="timeline-progress" id="timelineProgress"></div>
+                <div class="timeline-current" id="timelineCurrent"></div>
+            </div>
+            <div class="timeline-labels" id="timelineLabels"></div>
+            <div class="timeline-markers" id="timelineMarkers"></div>
+        </div>
+        <div class="timeline-legend">
+            <span class="legend-item"><span class="legend-dot valid"></span> Encore en jeu</span>
+            <span class="legend-item"><span class="legend-dot invalid"></span> Dépassé</span>
+            <span class="legend-item"><span class="legend-dot current"></span> Heure actuelle</span>
+        </div>
+    </section>
+
+    <!-- FIN Button (admin only — hidden via JS) -->
+    <section class="fin-section" id="finSection" style="display:none;">
+        <p class="fin-instruction">Quand Denis annonce l'épisode de la semaine prochaine, appuyez sur le bouton !</p>
+        <button class="btn-fin" id="btnFin">
+            <span class="btn-fin-text">FIN</span>
+            <span class="btn-fin-sub">Denis a parlé !</span>
+        </button>
+    </section>
+
+    <!-- Result -->
+    <section class="result-section" id="resultSection" style="display:none;">
+        <div class="result-card">
+            <div class="result-confetti" id="confetti"></div>
+            <h2 class="result-title">🏆 RÉSULTAT</h2>
+            <div class="result-time-label">Denis a annoncé à :</div>
+            <div class="result-time" id="resultTime">--:--</div>
+            <div class="result-winner" id="resultWinner"></div>
+            <div class="result-details" id="resultDetails"></div>
+            <button class="btn-reset" id="btnReset" style="display:none;">🔄 Nouvelle partie</button>
+        </div>
+    </section>
+
+    <!-- Leaderboard -->
+    <section class="leaderboard-section" id="leaderboardSection">
+        <h2 class="section-title">🏅 Classement Général</h2>
+        <div class="leaderboard-container" id="leaderboardContainer">
+            <div class="empty-state">
+                <div class="empty-icon">📊</div>
+                <p>Aucune partie jouée pour l'instant.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Rules -->
+    <section class="rules-section">
+        <details class="rules-details">
+            <summary class="rules-summary">📜 Règles du jeu</summary>
+            <div class="rules-content">
+                <ol>
+                    <li>Chaque joueur indique l'heure à laquelle il pense que Denis annoncera l'épisode de la semaine prochaine</li>
+                    <li>Si l'heure prédite est dépassée et que Denis ne l'a pas encore annoncé, la prédiction est <strong>invalidée</strong></li>
+                    <li>Le gagnant <strong>(1 point)</strong> est celui dont l'heure reste la plus proche du moment de l'annonce, sans avoir été dépassée. <em>Tout pile = 2 points !</em></li>
+                    <li>Personne ne dit la même heure — si prise, il faut en choisir une autre</li>
+                    <li>Les paris s'arrêtent à <strong>22h00</strong> — aucune exception</li>
+                    <li>Si toutes les heures sont dépassées, le joueur avec l'heure la plus tardive gagne</li>
+                </ol>
+                <p class="rules-example"><strong>Exemple :</strong> A dit 23:10 / B dit 23:17. Denis annonce à 23:11 → B gagne (23:10 est dépassé)</p>
+                <p class="rules-ranking"><strong>Classement :</strong> Points → Victoires → Tout Pile</p>
+            </div>
+        </details>
+    </section>
+
+    <footer class="footer">
+        <p>Le Jeu des Heures — Koh Lanta 2026 🔥</p>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>

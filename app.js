@@ -880,13 +880,15 @@
                     const isWinner = winner && bet.name === winner.name;
                     const isToutPile = isWinner && points === 2;
                     const finalPoints = isWinner ? points : 0;
+                    const gapMinutes = isWinner ? Math.abs(bet.minutes - endMin) : null;
 
                     const { error } = await supabase
                         .from('predictions')
                         .update({
                             points_won: finalPoints,
                             is_winner: isWinner,
-                            is_tout_pile: isToutPile
+                            is_tout_pile: isToutPile,
+                            gap_minutes: gapMinutes
                         })
                         .eq('id', bet.id);
 
@@ -947,11 +949,12 @@
             const leaderboard = getLocalLeaderboard();
             const wName = winner.name.trim();
             if (!leaderboard[wName]) {
-                leaderboard[wName] = { points: 0, wins: 0, toutpile: 0 };
+                leaderboard[wName] = { points: 0, wins: 0, toutpile: 0, totalGap: 0 };
             }
             leaderboard[wName].points += points;
             leaderboard[wName].wins += 1;
             if (points === 2) leaderboard[wName].toutpile += 1;
+            leaderboard[wName].totalGap = (leaderboard[wName].totalGap || 0) + Math.abs(winner.minutes - endMin);
             saveLocalLeaderboard(leaderboard);
         }
 
@@ -1042,7 +1045,7 @@
                 // Fetch predictions and players
                 const { data, error } = await supabase
                     .from('predictions')
-                    .select('points_won, is_winner, is_tout_pile, players(name)');
+                    .select('points_won, is_winner, is_tout_pile, gap_minutes, players(name)');
 
                 if (error) throw error;
 
@@ -1051,11 +1054,12 @@
                 data.forEach(p => {
                     const name = p.players.name;
                     if (!totals[name]) {
-                        totals[name] = { name, points: 0, wins: 0, toutpile: 0 };
+                        totals[name] = { name, points: 0, wins: 0, toutpile: 0, totalGap: 0 };
                     }
                     totals[name].points += p.points_won;
                     if (p.is_winner) totals[name].wins += 1;
                     if (p.is_tout_pile) totals[name].toutpile += 1;
+                    if (p.is_winner && p.gap_minutes != null) totals[name].totalGap += p.gap_minutes;
                 });
 
                 players = Object.values(totals);
@@ -1069,7 +1073,8 @@
                 name,
                 points: localLb[name].points || 0,
                 wins: localLb[name].wins || 0,
-                toutpile: localLb[name].toutpile || 0
+                toutpile: localLb[name].toutpile || 0,
+                totalGap: localLb[name].totalGap || 0
             }));
         }
 
@@ -1083,11 +1088,14 @@
             return;
         }
 
-        // Sort Rules: Points desc -> Wins desc -> Tout pile desc -> Name asc
+        // Sort: Points desc → Wins desc → Tout pile desc → Écart moyen asc (plus proche = mieux)
         players.sort((a, b) => {
             if (b.points !== a.points) return b.points - a.points;
             if (b.wins !== a.wins) return b.wins - a.wins;
             if (b.toutpile !== a.toutpile) return b.toutpile - a.toutpile;
+            const aAvg = a.wins > 0 ? a.totalGap / a.wins : 9999;
+            const bAvg = b.wins > 0 ? b.totalGap / b.wins : 9999;
+            if (aAvg !== bAvg) return aAvg - bAvg;
             return a.name.localeCompare(b.name);
         });
 

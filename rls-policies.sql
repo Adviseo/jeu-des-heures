@@ -180,6 +180,25 @@ CREATE POLICY "predictions_insert_active_episode"
         )
     );
 
+-- Modification : autorisée pour tout le monde si l'épisode est actif
+-- (le trigger check_bet_window s'occupe de la fenêtre horaire de 21h à 22h)
+DROP POLICY IF EXISTS "predictions_update_active_episode" ON public.predictions;
+CREATE POLICY "predictions_update_active_episode"
+    ON public.predictions FOR UPDATE
+    TO anon, authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.episodes e
+            WHERE e.id = episode_id AND e.status = 'active'
+        )
+    )
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM public.episodes e
+            WHERE e.id = episode_id AND e.status = 'active'
+        )
+    );
+
 -- Modification : via RPC admin uniquement (pour mettre à jour les scores)
 -- Fonction admin : mettre à jour les résultats d'une prédiction
 CREATE OR REPLACE FUNCTION public.admin_update_prediction_result(

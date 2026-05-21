@@ -650,6 +650,18 @@
         if (codeDisplay) codeDisplay.textContent = state.betCode || '— (aucun)';
     }
 
+    function resetBetForm() {
+        playerName.value = '';
+        betTime.value = '';
+        if (betCodeInput) betCodeInput.value = '';
+        formError.textContent = '';
+        const btnAdd = $('#btnAdd');
+        if (btnAdd) {
+            btnAdd.innerHTML = `<span class="btn-icon">➕</span> Ajouter le pari`;
+            btnAdd.classList.remove('editing');
+        }
+    }
+
     // ---- Clock UI Updater ----
     function updateClock() {
         const now = getReliableTime();
@@ -700,93 +712,126 @@
             }
 
             try {
-                // 1. Insert player or fetch existing
-                let { data: player, error: pErr } = await supabase
-                    .from('players')
-                    .select('id')
-                    .eq('name', name)
-                    .maybeSingle();
+                // Check if player already has a bet for this episode
+                const existingBet = state.bets.find(b => b.name.toLowerCase() === name.toLowerCase());
 
-                if (pErr) throw pErr;
+                if (existingBet) {
+                    // Update prediction time
+                    const { error: updateErr } = await supabase
+                        .from('predictions')
+                        .update({ predicted_time: time + ":00" })
+                        .eq('id', existingBet.id);
 
-                let playerId;
-                if (!player) {
-                    let { data: newP, error: insertPErr } = await supabase
-                        .from('players')
-                        .insert({ name })
-                        .select('id')
-                        .single();
-
-                    if (insertPErr) throw insertPErr;
-                    playerId = newP.id;
-                } else {
-                    playerId = player.id;
-                }
-
-                // 2. Insert prediction
-                const { error: predErr } = await supabase
-                    .from('predictions')
-                    .insert({
-                        episode_id: state.episodeId,
-                        player_id: playerId,
-                        predicted_time: time + ":00"
-                    });
-
-                if (predErr) {
-                    if (predErr.code === '23505') { // Unique constraint violation
-                        if (predErr.message.includes('unique_time_per_episode')) {
+                    if (updateErr) {
+                        if (updateErr.code === '23505') { // Unique constraint violation (time already taken)
                             showError(`L'heure ${time} est déjà prise ! Choisissez-en une autre.`);
                         } else {
-                            showError(`${name} a déjà un pronostic enregistré.`);
+                            throw updateErr;
                         }
-                    } else {
-                        throw predErr;
+                        return;
                     }
-                    return;
-                }
+                    await doSyncWithSupabase();
+                } else {
+                    // 1. Insert player or fetch existing
+                    let { data: player, error: pErr } = await supabase
+                        .from('players')
+                        .select('id')
+                        .eq('name', name)
+                        .maybeSingle();
 
-                await doSyncWithSupabase();
+                    if (pErr) throw pErr;
+
+                    let playerId;
+                    if (!player) {
+                        let { data: newP, error: insertPErr } = await supabase
+                            .from('players')
+                            .insert({ name })
+                            .select('id')
+                            .single();
+
+                        if (insertPErr) throw insertPErr;
+                        playerId = newP.id;
+                    } else {
+                        playerId = player.id;
+                    }
+
+                    // 2. Insert prediction
+                    const { error: predErr } = await supabase
+                        .from('predictions')
+                        .insert({
+                            episode_id: state.episodeId,
+                            player_id: playerId,
+                            predicted_time: time + ":00"
+                        });
+
+                    if (predErr) {
+                        if (predErr.code === '23505') { // Unique constraint violation
+                            if (predErr.message.includes('unique_time_per_episode')) {
+                                showError(`L'heure ${time} est déjà prise ! Choisissez-en une autre.`);
+                            } else {
+                                showError(`${name} a déjà un pronostic enregistré.`);
+                            }
+                        } else {
+                            throw predErr;
+                        }
+                        return;
+                    }
+                    await doSyncWithSupabase();
+                }
             } catch (e) {
-                console.error("Erreur d'ajout de pronostic", e);
+                console.error("Erreur d'ajout ou modification de pronostic", e);
                 showError("Erreur serveur lors de la soumission.");
             }
         } else {
             // Local fallback Mode
             const minutes = timeToMinutes(time);
-            if (state.bets.some(b => b.minutes === minutes)) {
-                showError(`L'heure ${time} est déjà prise ! Choisissez-en une autre.`);
-                return;
+            const existingLocalBet = state.bets.find(b => b.name.toLowerCase() === name.toLowerCase());
+
+            if (existingLocalBet) {
+                // Check if this time is already taken by another player locally
+                if (state.bets.some(b => b.name.toLowerCase() !== name.toLowerCase() && b.minutes === minutes)) {
+                    showError(`L'heure ${time} est déjà prise ! Choisissez-en une autre.`);
+                    return;
+                }
+                
+                existingLocalBet.time = time;
+                existingLocalBet.minutes = minutes;
+                
+                state.bets.sort((a, b) => a.minutes - b.minutes);
+                saveActiveGameLocally();
+                markRenderDirty();
+                renderPlayers();
+                renderTimeline();
+                showSections();
+            } else {
+                // Check if this time is already taken locally
+                if (state.bets.some(b => b.minutes === minutes)) {
+                    showError(`L'heure ${time} est déjà prise ! Choisissez-en une autre.`);
+                    return;
+                }
+
+                const id = Date.now() + Math.random();
+                const colorIdx = state.bets.length % avatarColors.length;
+
+                state.bets.push({
+                    id,
+                    name: name.trim(),
+                    time,
+                    minutes,
+                    color: avatarColors[colorIdx],
+                });
+
+                state.bets.sort((a, b) => a.minutes - b.minutes);
+                saveActiveGameLocally();
+                markRenderDirty();
+                renderPlayers();
+                renderTimeline();
+                showSections();
             }
-
-            if (state.bets.some(b => b.name.toLowerCase() === name.toLowerCase())) {
-                showError(`${name} a déjà un pronostic enregistré.`);
-                return;
-            }
-
-            const id = Date.now() + Math.random();
-            const colorIdx = state.bets.length % avatarColors.length;
-
-            state.bets.push({
-                id,
-                name: name.trim(),
-                time,
-                minutes,
-                color: avatarColors[colorIdx],
-            });
-
-            state.bets.sort((a, b) => a.minutes - b.minutes);
-            saveActiveGameLocally();
-            markRenderDirty();
-            renderPlayers();
-            renderTimeline();
-            showSections();
         }
 
-        playerName.value = '';
-        betTime.value = '';
-        if (betCodeInput) betCodeInput.value = '';
+        resetBetForm();
         playerName.focus();
-        formError.textContent = '';
     }
 
     betForm.addEventListener('submit', (e) => {
@@ -800,6 +845,21 @@
         if (!time) { showError('Choisissez une heure.'); return; }
 
         handleAddBet(name, time);
+    });
+
+    playerName.addEventListener('input', () => {
+        const name = playerName.value.trim().toLowerCase();
+        const exists = state.bets.some(b => b.name.toLowerCase() === name);
+        const btnAdd = $('#btnAdd');
+        if (btnAdd) {
+            if (exists) {
+                btnAdd.innerHTML = `<span class="btn-icon">✏️</span> Modifier le pari`;
+                btnAdd.classList.add('editing');
+            } else {
+                btnAdd.innerHTML = `<span class="btn-icon">➕</span> Ajouter le pari`;
+                btnAdd.classList.remove('editing');
+            }
+        }
     });
 
     // ---- Delete Bet Logic (event delegation — no more window._removeBet) ----
@@ -820,13 +880,36 @@
         }
     }
 
-    // Event delegation on playersList for delete buttons
+    // Event delegation on playersList for delete and edit buttons
     playersList.addEventListener('click', (e) => {
-        const btn = e.target.closest('.btn-delete');
-        if (!btn) return;
-        if (state.gameEnded) return;
-        const id = btn.dataset.betId;
-        if (id) handleDeleteBet(id);
+        const deleteBtn = e.target.closest('.btn-delete');
+        if (deleteBtn && !state.gameEnded) {
+            const id = deleteBtn.dataset.betId;
+            if (id) handleDeleteBet(id);
+            return;
+        }
+
+        const editBtn = e.target.closest('.btn-edit');
+        if (editBtn && !state.gameEnded) {
+            const pName = editBtn.dataset.playerName;
+            const bTime = editBtn.dataset.betTime;
+            
+            if (pName && bTime) {
+                playerName.value = pName;
+                betTime.value = bTime;
+                
+                // Scroll layout to bet form
+                betSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                
+                const btnAdd = $('#btnAdd');
+                if (btnAdd) {
+                    btnAdd.innerHTML = `<span class="btn-icon">✏️</span> Modifier le pari`;
+                    btnAdd.classList.add('editing');
+                }
+                
+                betTime.focus();
+            }
+        }
     });
 
     // ---- Render Players List ----
@@ -877,6 +960,9 @@
                             <span class="player-status ${isInvalidated ? 'invalid' : 'valid'}">
                                 ${isInvalidated ? '⏰ Dépassé' : '✓ En jeu'}
                             </span>
+                            ${now.totalMinutes < BET_WINDOW_END ? `
+                                <button class="btn-edit" data-player-name="${escapeAttr(bet.name)}" data-bet-time="${safeTime}" title="Modifier le pronostic de ${safeName}" aria-label="Modifier ${safeName}">✏️</button>
+                            ` : ''}
                             ${isAdmin ? `<button class="btn-delete" data-bet-id="${safeId}" title="Supprimer le pronostic de ${safeName}" aria-label="Supprimer ${safeName}">✕</button>` : ''}
                         ` : ''}
                     </div>

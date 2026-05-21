@@ -73,6 +73,11 @@ DECLARE
     paris_time TIME;
     episode_status TEXT;
 BEGIN
+    -- Si c'est une mise à jour et que l'heure prédite n'a pas changé, on ignore les vérifications
+    IF TG_OP = 'UPDATE' AND OLD.predicted_time = NEW.predicted_time THEN
+        RETURN NEW;
+    END IF;
+
     -- Vérifier que l'épisode est actif
     SELECT e.status INTO episode_status
     FROM public.episodes e
@@ -92,10 +97,10 @@ BEGIN
 END;
 $$;
 
--- Appliquer le trigger sur les insertions de prédictions
+-- Appliquer le trigger sur les insertions et modifications de prédictions
 DROP TRIGGER IF EXISTS trg_check_bet_window ON public.predictions;
 CREATE TRIGGER trg_check_bet_window
-    BEFORE INSERT ON public.predictions
+    BEFORE INSERT OR UPDATE ON public.predictions
     FOR EACH ROW
     EXECUTE FUNCTION public.check_bet_window();
 

@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Le Jeu des Heures - Koh Lanta</title>
     <meta name="description" content="Application de paris pour le Jeu des Heures de Koh Lanta. Enregistrez les pronostics et suivez en direct !">
+    <meta name="robots" content="noindex, nofollow">
+    <meta property="og:title" content="Le Jeu des Heures — Koh Lanta">
+    <meta property="og:description" content="Pariez sur l'heure à laquelle Denis annonce l'épisode suivant !">
+    <meta property="og:type" content="website">
+    <meta property="og:locale" content="fr_FR">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔥</text></svg>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -56,6 +62,7 @@
         </div>
     </div>
 
+    <main id="mainContent">
     <!-- Header -->
     <header class="header">
         <div class="header-torch left-torch">🔥</div>
@@ -67,14 +74,14 @@
     </header>
 
     <!-- Live Clock -->
-    <section class="clock-section">
-        <div class="clock-label">HEURE ACTUELLE</div>
-        <div class="clock" id="liveClock">--:--:--</div>
-        <div class="clock-status" id="clockStatus">En attente des pronostics…</div>
+    <section class="clock-section" aria-label="Horloge en direct">
+        <div class="clock-label" id="clockLabel">HEURE ACTUELLE</div>
+        <div class="clock" id="liveClock" role="timer" aria-labelledby="clockLabel" aria-live="polite">--:--:--</div>
+        <div class="clock-status" id="clockStatus" aria-live="polite">En attente des pronostics…</div>
     </section>
 
     <!-- Bet Input -->
-    <section class="bet-section" id="betSection">
+    <section class="bet-section" id="betSection" aria-label="Formulaire de pronostic">
         <div class="bet-card">
             <h2 class="section-title">🎯 Nouveau Pronostic</h2>
             <form id="betForm" class="bet-form">
@@ -100,9 +107,9 @@
     </section>
 
     <!-- Players List -->
-    <section class="players-section" id="playersSection">
+    <section class="players-section" id="playersSection" aria-label="Pronostics enregistrés">
         <h2 class="section-title">🏝️ Pronostics enregistrés <span class="player-count" id="playerCount">(0)</span></h2>
-        <div class="players-list" id="playersList">
+        <div class="players-list" id="playersList" role="list" aria-live="polite">
             <div class="empty-state" id="emptyState">
                 <div class="empty-icon">🌴</div>
                 <p>Aucun pronostic pour l'instant.<br>Les paris ouvrent à 21h00 !</p>
@@ -111,7 +118,7 @@
     </section>
 
     <!-- Timeline -->
-    <section class="timeline-section" id="timelineSection" style="display:none;">
+    <section class="timeline-section" id="timelineSection" style="display:none;" aria-label="Timeline des pronostics">
         <h2 class="section-title">📊 Timeline en direct</h2>
         <div class="timeline-container">
             <div class="timeline-track" id="timelineTrack">
@@ -131,14 +138,14 @@
     <!-- FIN Button (admin only — hidden via JS) -->
     <section class="fin-section" id="finSection" style="display:none;">
         <p class="fin-instruction">Quand Denis annonce l'épisode de la semaine prochaine, appuyez sur le bouton !</p>
-        <button class="btn-fin" id="btnFin">
+        <button class="btn-fin" id="btnFin" aria-label="Terminer la partie — Denis a annoncé l'épisode suivant">
             <span class="btn-fin-text">FIN</span>
             <span class="btn-fin-sub">Denis a parlé !</span>
         </button>
     </section>
 
     <!-- Result -->
-    <section class="result-section" id="resultSection" style="display:none;">
+    <section class="result-section" id="resultSection" style="display:none;" aria-label="Résultats">
         <div class="result-card">
             <div class="result-confetti" id="confetti"></div>
             <h2 class="result-title">🏆 RÉSULTAT</h2>
@@ -151,7 +158,7 @@
     </section>
 
     <!-- Leaderboard -->
-    <section class="leaderboard-section" id="leaderboardSection">
+    <section class="leaderboard-section" id="leaderboardSection" aria-label="Classement général">
         <h2 class="section-title">🏅 Classement Général</h2>
         <div class="leaderboard-container" id="leaderboardContainer">
             <div class="empty-state">
@@ -179,6 +186,8 @@
             </div>
         </details>
     </section>
+
+    </main>
 
     <footer class="footer">
         <p>Le Jeu des Heures — Koh Lanta 2026 🔥</p>

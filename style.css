@@ -1387,3 +1387,154 @@ details[open] .rules-summary::before {
         padding: 0.5rem 0.5rem;
     }
 }
+
+/* ============================================
+   ALL STARS — coefficient, feu sacré, portée du classement
+   ============================================ */
+
+/* --- Barre admin : réglage du coefficient --- */
+.admin-multiplier {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.admin-multiplier label {
+    font-weight: 600;
+}
+
+.admin-multiplier select {
+    padding: 0.25rem 0.4rem;
+    font-family: var(--font-main);
+    font-size: 0.8rem;
+    font-weight: 600;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    outline: none;
+    cursor: pointer;
+}
+
+.admin-multiplier select:focus {
+    border-color: var(--accent-fire);
+}
+
+/* --- Badge « épreuve reine » sous le titre --- */
+.multiplier-badge {
+    margin-top: 0.7rem;
+    padding: 0.35rem 0.9rem;
+    display: inline-block;
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: var(--accent-gold);
+    background: rgba(255, 215, 0, 0.12);
+    border: 1px solid rgba(255, 215, 0, 0.35);
+    border-radius: 20px;
+    animation: badge-pulse 2.6s ease-in-out infinite;
+}
+
+@keyframes badge-pulse {
+    0%, 100% { box-shadow: 0 0 0 rgba(255, 215, 0, 0); }
+    50%      { box-shadow: 0 0 18px rgba(255, 215, 0, 0.28); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .multiplier-badge { animation: none; }
+}
+
+/* --- Détail du barème dans le résultat --- */
+.result-winner .winner-breakdown {
+    margin-top: 0.5rem;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    letter-spacing: 0.02em;
+}
+
+/* --- Classement : saison en cours / toutes saisons --- */
+.lb-scope {
+    display: flex;
+    gap: 0.4rem;
+    margin-bottom: 0.9rem;
+}
+
+.lb-scope-btn {
+    padding: 0.3rem 0.8rem;
+    font-family: var(--font-main);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 20px;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+
+.lb-scope-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--border-glow);
+}
+
+.lb-scope-btn.active {
+    color: #fff;
+    background: var(--accent-fire);
+    border-color: var(--accent-fire);
+}
+
+.lb-combo, .lb-precision {
+    font-weight: 500;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    white-space: nowrap;
+}
+
+/* --- Classement : 7 colonnes doivent tenir sur un téléphone --- */
+/* Le conteneur avait overflow:hidden pour ses coins arrondis, ce qui
+   coupait purement et simplement les deux dernières colonnes en mobile. */
+.leaderboard-container {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 480px) {
+    .leaderboard-table {
+        font-size: 0.8rem;
+    }
+
+    .leaderboard-table thead th,
+    .leaderboard-table tbody td {
+        padding-left: 0.4rem;
+        padding-right: 0.4rem;
+    }
+
+    .leaderboard-table thead th:first-child,
+    .leaderboard-table tbody td:first-child {
+        padding-left: 0.7rem;
+    }
+
+    /* Le cumul de feu sacré est la colonne la plus dispensable :
+       elle cède la place plutôt que de forcer un défilement latéral. */
+    .leaderboard-table thead th:nth-child(6),
+    .leaderboard-table tbody td:nth-child(6) {
+        display: none;
+    }
+}
+
+/* Deux libellés pour deux largeurs : le téléphone garde toutes les colonnes. */
+.lb-short, .leaderboard-table .lb-unit { display: none; }
+.lb-full { display: inline; }
+.leaderboard-table .lb-unit { display: inline; }
+
+@media (max-width: 480px) {
+    .lb-full { display: none; }
+    .lb-short { display: inline; }
+    .leaderboard-table .lb-unit { display: none; }
+}

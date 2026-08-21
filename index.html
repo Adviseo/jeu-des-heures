@@ -56,11 +56,21 @@
         <div class="admin-row-bottom">
             <div class="admin-episode">
                 <label for="episodeNumber">Épisode actif</label>
-                <input type="number" id="episodeNumber" min="1" max="99" value="12">
+                <input type="number" id="episodeNumber" min="1" max="99" value="1">
                 <button class="btn-episode-save" id="btnEpisodeSave">Appliquer</button>
                 <button class="btn-new-episode" id="btnNewEpisode" title="Créer un nouvel épisode">➕ Nouveau</button>
             </div>
             
+            <div class="admin-multiplier">
+                <label for="episodeMultiplier">Coefficient</label>
+                <select id="episodeMultiplier">
+                    <option value="1">×1 — normal</option>
+                    <option value="2">×2 — orientation</option>
+                    <option value="3">×3 — finale</option>
+                </select>
+                <button class="btn-episode-save" id="btnMultiplierSave" title="Appliquer le coefficient — impossible dès qu’un pari est enregistré">Appliquer</button>
+            </div>
+
             <div class="admin-code" id="adminCodeSection" style="display:none;">
                 <span class="admin-code-label">Code joueurs :</span>
                 <span class="admin-code-value" id="codeDisplay">—</span>
@@ -79,7 +89,8 @@
         <div class="header-torch left-torch">🔥</div>
         <div class="header-content">
             <h1 class="title">LE JEU DES HEURES</h1>
-            <p class="subtitle">KOH LANTA — <span id="episodeLabel">ÉPISODE 12</span></p>
+            <p class="subtitle">KOH LANTA — <span id="episodeLabel">ALL STARS — ÉPISODE 1</span></p>
+            <div class="multiplier-badge" id="multiplierBadge" style="display:none;" aria-live="polite"></div>
         </div>
         <div class="header-torch right-torch">🔥</div>
     </header>
@@ -98,7 +109,7 @@
             <form id="betForm" class="bet-form">
                 <div class="form-group">
                     <label for="playerName">Joueur</label>
-                    <input type="text" id="playerName" placeholder="Nom du joueur" autocomplete="off" list="playerSuggestions" required>
+                    <input type="text" id="playerName" placeholder="Nom du joueur" autocomplete="off" list="playerSuggestions" maxlength="24" required>
                     <datalist id="playerSuggestions"></datalist>
                 </div>
                 <div class="form-group">
@@ -187,11 +198,14 @@
                 <p class="rules-intro"><strong>Devine l'heure où Denis annonce l'émission de la semaine prochaine.</strong> Le plus proche sans être dépassé l'emporte.</p>
                 <ul class="rules-list">
                     <li>🎯 <strong>Jouer :</strong> Choisis une heure (TNT direct). Chaque heure doit être unique (si déjà prise, choisis-en une autre). Les paris s'arrêtent à <strong>22h00 pile</strong>.</li>
-                    <li>🏆 <strong>Gagner :</strong> <strong>+1 point</strong> (le plus proche), <strong>+2 points</strong> si <em>Tout Pile</em> 💎.</li>
+                    <li>🏆 <strong>Gagner :</strong> <strong>+1 point</strong> (le plus proche sans dépasser), <strong>+1 bonus</strong> si <em>Tout Pile</em> 💎.</li>
+                    <li>🔥 <strong>Feu sacré :</strong> tu gagnes plusieurs semaines de suite ? <strong>+1</strong> à la 2ᵉ victoire d'affilée, <strong>+2</strong> à la 3ᵉ et au-delà.</li>
+                    <li>👑 <strong>Épreuves reines :</strong> la victoire de base compte <strong>×2 à l'orientation</strong> et <strong>×3 en finale</strong>. Le coefficient est annoncé avant 21h et ne multiplie ni le Tout Pile ni le Feu sacré.</li>
                     <li>⛔ <strong>Éliminé :</strong> Heure dépassée = invalidée. <em>Tous éliminés ? Le dernier (l'heure la plus tardive) gagne.</em></li>
                 </ul>
                 <p class="rules-example"><strong>Exemple :</strong> A dit 23:10 / B dit 23:17. Denis annonce à 23:11 → A éliminé ❌ B gagne ✅</p>
-                <p class="rules-ranking"><strong>Classement :</strong> Points → Victoires → Tout Pile → Écart moyen le plus faible</p>
+                <p class="rules-example"><strong>Exemple en finale (×3) :</strong> tu gagnes pile à l'heure après avoir déjà gagné les deux semaines précédentes → 3 (victoire ×3) + 1 (tout pile) + 2 (feu sacré) = <strong>6 points</strong>.</p>
+                <p class="rules-ranking"><strong>Classement :</strong> Points → Victoires → Tout Pile → Précision (écart moyen le plus faible)</p>
             </div>
         </details>
     </section>

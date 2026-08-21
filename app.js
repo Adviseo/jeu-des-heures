@@ -9,14 +9,22 @@
     const DEFAULT_SUPABASE_URL = 'https://byippbemdlbhybcbuviv.supabase.co';
     const DEFAULT_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ5aXBwYmVtZGxiaHliY2J1dml2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwMDgwNTYsImV4cCI6MjA4OTU4NDA1Nn0.HN2AkClZd15ZkJftwbWBk7qFhBlNWRs9l4IRMSP2VQ0';
 
+    // ---- Saison en cours ----
+    // La saison 1 est la saison précédente (16 épisodes, conservée en base).
+    // Le classement est filtré par saison : on repart de zéro.
+    const CURRENT_SEASON = 2;
+    const SEASON_LABEL = 'ALL STARS';
+
     // ---- State ----
     const state = {
-        bets: [],           // { id, name, time (HH:MM string), minutes (total min since 00:00), color }
+        bets: [],           // { id, name, time (HH:MM string), minutes (minute de jeu), color }
         gameEnded: false,
-        endTime: null,      // minutes since 00:00
+        endTime: null,      // minute de jeu (voir timeToMinutes)
         endTimeStr: null,
-        episodeNumber: 12,  // Default episode number
+        season: CURRENT_SEASON,
+        episodeNumber: 1,   // Default episode number
         episodeId: null,    // Supabase episode UUID
+        multiplier: 1,      // coefficient de l'épisode (épreuves reines)
         isSupabaseConnected: false,
         dbTimeOffset: 0,    // Offset between client time and DB time in milliseconds
         betCode: null       // 4-digit code required to submit a bet (null = no code required)
@@ -41,10 +49,25 @@
     ];
 
     // ---- Timeline Config ----
+    const DAY_MINUTES = 24 * 60;
     const TIMELINE_START = 21 * 60;          // 21:00 in minutes
     const TIMELINE_END_DEFAULT = 24 * 60;    // 00:00 (next day)
     const BET_WINDOW_START = 21 * 60;        // 21:00
     const BET_WINDOW_END = 22 * 60;          // 22:00
+
+    // ---- Barème ----
+    // Le coefficient ne multiplie que la victoire de base : jamais le tout
+    // pile, jamais le feu sacré. Sinon un tout pile en finale (2 × 3 = 6)
+    // vaudrait plus que la saison entière d'un très bon joueur.
+    const POINTS_TOUT_PILE = 1;              // bonus fixe
+    const COMBO_CAP = 2;                     // plafond du feu sacré
+
+    function computePoints(isToutPile, multiplier, streak) {
+        const base = 1 * Math.max(1, multiplier || 1);
+        const toutPile = isToutPile ? POINTS_TOUT_PILE : 0;
+        const combo = Math.min(streak || 0, COMBO_CAP);
+        return { base, toutPile, combo, total: base + toutPile + combo };
+    }
 
     // ---- Admin Check ----
     const urlParams = new URLSearchParams(window.location.search);
@@ -85,6 +108,9 @@
     const btnNewEpisode = $('#btnNewEpisode');
     const episodeLabel = $('#episodeLabel');
     const leaderboardContainer = $('#leaderboardContainer');
+    const multiplierInput = $('#episodeMultiplier');
+    const btnMultiplierSave = $('#btnMultiplierSave');
+    const multiplierBadge = $('#multiplierBadge');
     
     // Supabase config elements
     const betCodeInput = $('#betCode');
@@ -104,9 +130,18 @@
 
     // ---- Utility Functions ----
 
+    /**
+     * Convertit une heure HH:MM en « minute de jeu ».
+     *
+     * La soirée déborde sur le lendemain : une annonce à 00:07 doit se situer
+     * APRÈS un pari à 23:55, pas huit heures avant. On projette donc tout sur
+     * un axe continu où 00:00–11:59 appartient au lendemain (+24 h).
+     * Sans ça, une annonce après minuit désigne le pari le plus précoce
+     * comme vainqueur et n'invalide personne.
+     */
     function timeToMinutes(timeStr) {
         const [h, m] = timeStr.split(':').map(Number);
-        return h * 60 + m;
+        return h * 60 + m + (h < 12 ? DAY_MINUTES : 0);
     }
 
     function minutesToTime(minutes) {
@@ -166,6 +201,34 @@
         _renderDirty = true;
     }
 
+    /** Couleur stable, dérivée du nom : elle ne bouge plus d'une sync à l'autre. */
+    function colorForName(name) {
+        const key = String(name).trim().toLowerCase();
+        let hash = 0;
+        for (let i = 0; i < key.length; i++) {
+            hash = (hash * 31 + key.charCodeAt(i)) % 100000;
+        }
+        return avatarColors[hash % avatarColors.length];
+    }
+
+    function multiplierLabel(mult) {
+        if (mult === 3) return 'FINALE ×3';
+        if (mult === 2) return 'ORIENTATION ×2';
+        if (mult > 1) return `×${mult}`;
+        return '';
+    }
+
+    function renderEpisodeLabel() {
+        const badge = multiplierLabel(state.multiplier);
+        episodeLabel.textContent = `${SEASON_LABEL} — ÉPISODE ${state.episodeNumber}`;
+        if (episodeNumberInput) episodeNumberInput.value = state.episodeNumber;
+        if (multiplierInput) multiplierInput.value = state.multiplier;
+        if (multiplierBadge) {
+            multiplierBadge.textContent = badge ? `🔥 ${badge} — POINTS MULTIPLIÉS` : '';
+            multiplierBadge.style.display = badge ? 'block' : 'none';
+        }
+    }
+
     // ---- Shared Winner Computation (single source of truth) ----
     /**
      * Computes the winner from a list of bets and an end time.
@@ -202,7 +265,8 @@
             gameEnded: state.gameEnded,
             endTime: state.endTime,
             endTimeStr: state.endTimeStr,
-            episodeNumber: state.episodeNumber
+            episodeNumber: state.episodeNumber,
+            multiplier: state.multiplier
         }));
     }
 
@@ -216,7 +280,8 @@
                 state.gameEnded = data.gameEnded || false;
                 state.endTime = data.endTime || null;
                 state.endTimeStr = data.endTimeStr || null;
-                state.episodeNumber = data.episodeNumber || 12;
+                state.episodeNumber = data.episodeNumber || 1;
+                state.multiplier = data.multiplier || 1;
                 if (state.bets.length > 0) {
                     hasActiveGame = true;
                 }
@@ -243,7 +308,7 @@
                         const legacyEndTimeStr = localStorage.getItem('endTimeStr');
                         state.endTimeStr = legacyEndTimeStr ? JSON.parse(legacyEndTimeStr) : null;
                         
-                        state.episodeNumber = 12; // default legacy episode number
+                        state.episodeNumber = 1; // default legacy episode number
                         
                         saveActiveGameLocally();
                         console.log("Migration des anciennes données de jeu locale ('bets', etc.) réussie !");
@@ -396,38 +461,51 @@
         return null;
     }
 
+    /** Décrit un instant sur le même axe continu que timeToMinutes(). */
+    function describeTime(d) {
+        const h = d.getHours(), m = d.getMinutes(), s = d.getSeconds();
+        const pad = (n) => String(n).padStart(2, '0');
+        return {
+            hours: h,
+            minutes: m,
+            seconds: s,
+            totalMinutes: h * 60 + m + (h < 12 ? DAY_MINUTES : 0),
+            // Heure murale non decalee : sert aux controles de la fenetre de
+            // pari, pour que le message reste juste a 10h du matin aussi.
+            clockMinutes: h * 60 + m,
+            formatted: `${pad(h)}:${pad(m)}:${pad(s)}`,
+            formattedShort: `${pad(h)}:${pad(m)}`,
+        };
+    }
+
     function getReliableTime() {
         const localTime = new Date();
         if (state.isSupabaseConnected) {
             // Apply offset to match server time
-            const serverMs = localTime.getTime() + state.dbTimeOffset;
-            const sTime = new Date(serverMs);
-            return {
-                hours: sTime.getHours(),
-                minutes: sTime.getMinutes(),
-                seconds: sTime.getSeconds(),
-                totalMinutes: sTime.getHours() * 60 + sTime.getMinutes(),
-                formatted: `${String(sTime.getHours()).padStart(2, '0')}:${String(sTime.getMinutes()).padStart(2, '0')}:${String(sTime.getSeconds()).padStart(2, '0')}`,
-                formattedShort: `${String(sTime.getHours()).padStart(2, '0')}:${String(sTime.getMinutes()).padStart(2, '0')}`,
-            };
-        } else {
-            // Standard local time fallback
-            return {
-                hours: localTime.getHours(),
-                minutes: localTime.getMinutes(),
-                seconds: localTime.getSeconds(),
-                totalMinutes: localTime.getHours() * 60 + localTime.getMinutes(),
-                formatted: `${String(localTime.getHours()).padStart(2, '0')}:${String(localTime.getMinutes()).padStart(2, '0')}:${String(localTime.getSeconds()).padStart(2, '0')}`,
-                formattedShort: `${String(localTime.getHours()).padStart(2, '0')}:${String(localTime.getMinutes()).padStart(2, '0')}`,
-            };
+            return describeTime(new Date(localTime.getTime() + state.dbTimeOffset));
         }
+        return describeTime(localTime);
     }
 
     // ---- Real-time listeners ----
+    let _channel = null;
+    let _fallbackPoll = null;
+
+    /**
+     * Le websocket temps reel meurt quand le telephone se met en veille.
+     * Sans reprise, la liste reste figee et le resultat n'arrive jamais :
+     * on surveille donc l'etat de l'abonnement, on resynchronise au reveil
+     * de l'onglet, et un rafraichissement de secours tourne en fond.
+     */
     function setupRealTimeSubscriptions() {
         if (!supabase) return;
-        
-        supabase.channel('public:room')
+
+        if (_channel) {
+            try { supabase.removeChannel(_channel); } catch (e) { /* deja ferme */ }
+            _channel = null;
+        }
+
+        _channel = supabase.channel('public:room')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'episodes' }, () => {
                 syncWithSupabase();
             })
@@ -437,8 +515,34 @@
             .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, () => {
                 syncWithSupabase();
             })
-            .subscribe();
+            .subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    // On a pu manquer des evenements pendant la coupure
+                    syncWithSupabase();
+                } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+                    console.warn('Temps reel interrompu (' + status + '), reconnexion dans 5 s');
+                    setTimeout(() => {
+                        if (state.isSupabaseConnected) setupRealTimeSubscriptions();
+                    }, 5000);
+                }
+            });
+
+        if (!_fallbackPoll) {
+            // Filet de securite : meme websocket mort, l'ecran finit par etre juste.
+            _fallbackPoll = setInterval(() => {
+                if (state.isSupabaseConnected && document.visibilityState === 'visible') {
+                    syncWithSupabase();
+                }
+            }, 30000);
+        }
     }
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && state.isSupabaseConnected) {
+            fetchServerTime();
+            syncWithSupabase();
+        }
+    });
 
     // ---- Debounced Sync Wrapper ----
     function syncWithSupabase() {
@@ -459,23 +563,28 @@
         try {
             // 1. Fetch active episode (status = 'active')
             // If none, get the latest overall completed episode to render the result of the last game
+            // Filtré sur la saison en cours : les épisodes des saisons
+            // précédentes ne doivent jamais redevenir l'épisode courant.
             let { data: activeEpisodes, error: epError } = await supabase
                 .from('episodes')
                 .select('*')
+                .eq('season', CURRENT_SEASON)
                 .order('number', { ascending: false });
 
             if (epError) throw epError;
 
             let currentEpisode = activeEpisodes.find(ep => ep.status === 'active');
-            
+
             // If no active, take the latest completed one (to show past results)
             if (!currentEpisode && activeEpisodes.length > 0) {
-                currentEpisode = activeEpisodes[0]; 
+                currentEpisode = activeEpisodes[0];
             }
 
             if (currentEpisode) {
                 state.episodeId = currentEpisode.id;
                 state.episodeNumber = currentEpisode.number;
+                state.season = currentEpisode.season;
+                state.multiplier = currentEpisode.multiplier || 1;
                 state.gameEnded = currentEpisode.status === 'completed';
                 state.betCode = currentEpisode.status === 'active' ? (currentEpisode.bet_code || null) : null;
                 
@@ -491,8 +600,7 @@
                     state.endTimeStr = null;
                 }
 
-                episodeLabel.textContent = `ÉPISODE ${state.episodeNumber}`;
-                episodeNumberInput.value = state.episodeNumber;
+                renderEpisodeLabel();
 
                 // 2. Fetch predictions for this episode
                 let { data: preds, error: predError } = await supabase
@@ -502,8 +610,7 @@
 
                 if (predError) throw predError;
 
-                state.bets = preds.map((p, idx) => {
-                    const colorIdx = idx % avatarColors.length;
+                state.bets = preds.map((p) => {
                     // Format time HH:MM from HH:MM:SS
                     const formattedTime = p.predicted_time.substring(0, 5);
                     return {
@@ -511,9 +618,12 @@
                         name: p.players.name,
                         time: formattedTime,
                         minutes: timeToMinutes(formattedTime),
-                        color: avatarColors[colorIdx],
+                        // Couleur dérivée du nom : elle suit le joueur toute la
+                        // saison au lieu de changer à chaque synchronisation.
+                        color: colorForName(p.players.name),
                         isWinner: p.is_winner,
                         isToutPile: p.is_tout_pile,
+                        comboBonus: p.combo_bonus || 0,
                         pointsWon: p.points_won
                     };
                 });
@@ -527,7 +637,8 @@
                 state.endTime = null;
                 state.endTimeStr = null;
                 state.betCode = null;
-                episodeLabel.textContent = `AUCUN ÉPISODE`;
+                state.multiplier = 1;
+                episodeLabel.textContent = `${SEASON_LABEL} — AUCUN ÉPISODE`;
             }
 
             // Populate player name autocomplete
@@ -539,6 +650,7 @@
             renderTimeline();
             showSections();
             updateCodeUI();
+            syncResultView();
             renderLeaderboard();
         } catch (e) {
             console.error("Erreur de synchronisation Supabase", e);
@@ -574,7 +686,7 @@
         try {
             const localData = JSON.parse(localSaved);
             const bets = localData.bets || [];
-            const localEpNumber = localData.episodeNumber || 12;
+            const localEpNumber = localData.episodeNumber || 1;
 
             if (!confirm(`Voulez-vous téléverser tous les paris de votre session locale en cours (${bets.length} joueurs) vers Supabase ?`)) {
                 return;
@@ -584,7 +696,9 @@
 
             // If there's no active episode on Supabase, create/activate one automatically
             if (!currentEpisodeId) {
-                let { data: epId, error: rpcError } = await supabase.rpc('admin_activate_episode', { ep_number: localEpNumber });
+                let { data: epId, error: rpcError } = await supabase.rpc('admin_activate_episode', {
+                    p_pw: adminPw(), p_season: CURRENT_SEASON, p_number: localEpNumber
+                });
                 if (rpcError) throw rpcError;
                 currentEpisodeId = epId;
             }
@@ -684,13 +798,13 @@
         const reliableTime = getReliableTime();
 
         // 22:00 Bet Window limit check
-        if (reliableTime.totalMinutes >= BET_WINDOW_END) {
+        if (reliableTime.clockMinutes >= BET_WINDOW_END) {
             showError("Les paris se sont arrêtés à 22h00 !");
             return;
         }
 
         // 21:00 Bet Window start check
-        if (reliableTime.totalMinutes < BET_WINDOW_START) {
+        if (reliableTime.clockMinutes < BET_WINDOW_START) {
             showError("Les pronostics n'ouvrent qu'à 21h00 !");
             return;
         }
@@ -811,14 +925,13 @@
                 }
 
                 const id = Date.now() + Math.random();
-                const colorIdx = state.bets.length % avatarColors.length;
 
                 state.bets.push({
                     id,
                     name: name.trim(),
                     time,
                     minutes,
-                    color: avatarColors[colorIdx],
+                    color: colorForName(name),
                 });
 
                 state.bets.sort((a, b) => a.minutes - b.minutes);
@@ -868,7 +981,9 @@
         
         if (state.isSupabaseConnected && supabase) {
             try {
-                const { error } = await supabase.rpc('admin_delete_prediction', { pred_id: id });
+                const { error } = await supabase.rpc('admin_delete_prediction', {
+                    p_pw: adminPw(), p_pred_id: id
+                });
                 if (error) throw error;
                 await doSyncWithSupabase();
             } catch (e) {
@@ -928,7 +1043,7 @@
 
         // Check if invalidated set changed (optimization for tick())
         const currentInvalidatedSet = state.bets
-            .filter(b => !state.gameEnded && b.minutes <= now.totalMinutes)
+            .filter(b => !state.gameEnded && b.minutes < now.totalMinutes)
             .map(b => b.id)
             .join(',');
 
@@ -941,7 +1056,7 @@
         
         let html = '';
         state.bets.forEach((bet) => {
-            const isInvalidated = !state.gameEnded && bet.minutes <= now.totalMinutes;
+            const isInvalidated = !state.gameEnded && bet.minutes < now.totalMinutes;
             const initial = bet.name.charAt(0).toUpperCase();
             const safeName = escapeHtml(bet.name);
             const safeTime = escapeHtml(bet.time);
@@ -960,7 +1075,7 @@
                             <span class="player-status ${isInvalidated ? 'invalid' : 'valid'}">
                                 ${isInvalidated ? '⏰ Dépassé' : '✓ En jeu'}
                             </span>
-                            ${now.totalMinutes < BET_WINDOW_END ? `
+                            ${now.clockMinutes < BET_WINDOW_END && now.clockMinutes >= BET_WINDOW_START ? `
                                 <button class="btn-edit" data-player-name="${escapeAttr(bet.name)}" data-bet-time="${safeTime}" title="Modifier le pronostic de ${safeName}" aria-label="Modifier ${safeName}">✏️</button>
                             ` : ''}
                             ${isAdmin ? `<button class="btn-delete" data-bet-id="${safeId}" title="Supprimer le pronostic de ${safeName}" aria-label="Supprimer ${safeName}">✕</button>` : ''}
@@ -1013,7 +1128,7 @@
         let markersHtml = '';
         state.bets.forEach((bet, i) => {
             const pct = getTimelinePercent(bet.minutes);
-            const isInvalidated = !state.gameEnded && bet.minutes <= now.totalMinutes;
+            const isInvalidated = !state.gameEnded && bet.minutes < now.totalMinutes;
             const position = i % 2 === 0 ? 'top' : 'bottom';
             const safeName = escapeHtml(bet.name);
             const safeTime = escapeHtml(bet.time);
@@ -1049,47 +1164,28 @@
         }
 
         const reliableTime = getReliableTime();
-        
+
         if (state.isSupabaseConnected && supabase && state.episodeId) {
+            // Un seul appel : le serveur horodate, désigne le vainqueur,
+            // applique le barème et clôture — dans une seule transaction.
+            // Une coupure réseau ne peut plus laisser l'épisode à moitié scoré,
+            // et le calcul n'est plus dictable depuis le navigateur.
+            btnFin.disabled = true;
             try {
-                // Get precise timestamp from server
-                const { data: serverTimeData } = await supabase.rpc('get_server_time');
-                const serverTimeStr = serverTimeData[0].server_time;
-
-                // Compute winner using shared function
-                const endMin = reliableTime.totalMinutes;
-                const { winner, points } = computeWinner(state.bets, endMin);
-
-                // Save results of predictions to Supabase via RPC
-                for (const bet of state.bets) {
-                    const isWinner = winner && bet.name === winner.name;
-                    const isToutPile = isWinner && points === 2;
-                    const finalPoints = isWinner ? points : 0;
-                    const gapMinutes = isWinner ? Math.abs(bet.minutes - endMin) : null;
-
-                    const { error } = await supabase.rpc('admin_update_prediction_result', {
-                        pred_id: bet.id,
-                        p_points_won: finalPoints,
-                        p_is_winner: isWinner,
-                        p_is_tout_pile: isToutPile,
-                        p_gap_minutes: gapMinutes
-                    });
-
-                    if (error) throw error;
-                }
-
-                // Mark episode as completed with real server timestamp via RPC
-                const { error: epError } = await supabase.rpc('admin_close_episode', {
-                    ep_id: state.episodeId,
-                    announced_timestamp: serverTimeStr
+                const { error } = await supabase.rpc('admin_close_episode', {
+                    p_pw: adminPw(),
+                    p_ep_id: state.episodeId,
+                    p_announced: null   // null = l'horloge du serveur fait foi
                 });
 
-                if (epError) throw epError;
+                if (error) throw error;
 
                 await doSyncWithSupabase();
             } catch (e) {
                 console.error("Erreur lors de la clôture de l'épisode", e);
-                alert("Erreur réseau lors de la clôture.");
+                reportAdminError(e, "La clôture a échoué. L'épisode est resté ouvert, vous pouvez réessayer.");
+            } finally {
+                btnFin.disabled = false;
             }
         } else {
             // Local Mode
@@ -1098,22 +1194,46 @@
             state.endTimeStr = reliableTime.formattedShort;
 
             // Apply points locally using shared function
-            const { winner, points, allInvalidated } = computeWinner(state.bets, state.endTime);
+            const { winner, allInvalidated } = computeWinner(state.bets, state.endTime);
 
             if (winner) {
                 const leaderboard = getLocalLeaderboard();
                 const wName = winner.name.trim();
                 if (!leaderboard[wName]) {
-                    leaderboard[wName] = { points: 0, wins: 0, toutpile: 0, totalGap: 0 };
+                    leaderboard[wName] = { points: 0, wins: 0, toutpile: 0, totalGap: 0, gapCount: 0 };
                 }
-                leaderboard[wName].points += points;
+
+                // Feu sacré : victoires consécutives, plafonnées
+                const lastWinner = localStorage.getItem('jdh_last_winner');
+                const streak = (lastWinner === wName)
+                    ? parseInt(localStorage.getItem('jdh_streak') || '0', 10)
+                    : 0;
+                const isToutPile = winner.minutes === state.endTime;
+                const score = computePoints(isToutPile, state.multiplier, streak);
+
+                leaderboard[wName].points += score.total;
                 leaderboard[wName].wins += 1;
-                if (points === 2) leaderboard[wName].toutpile += 1;
-                leaderboard[wName].totalGap = (leaderboard[wName].totalGap || 0) + Math.abs(winner.minutes - state.endTime);
+                if (isToutPile) leaderboard[wName].toutpile += 1;
+
+                // Écart de tout le monde : permet une précision moyenne honnête
+                state.bets.forEach(b => {
+                    const n = b.name.trim();
+                    if (!leaderboard[n]) {
+                        leaderboard[n] = { points: 0, wins: 0, toutpile: 0, totalGap: 0, gapCount: 0 };
+                    }
+                    leaderboard[n].totalGap = (leaderboard[n].totalGap || 0) + Math.abs(b.minutes - state.endTime);
+                    leaderboard[n].gapCount = (leaderboard[n].gapCount || 0) + 1;
+                });
+
                 saveLocalLeaderboard(leaderboard);
+                localStorage.setItem('jdh_last_winner', wName);
+                localStorage.setItem('jdh_streak', String(streak + 1));
+
+                renderResultUI(winner, score, allInvalidated);
+            } else {
+                renderResultUI(null, null, allInvalidated);
             }
 
-            renderResultUI(winner, points, allInvalidated);
             renderLeaderboard();
             spawnConfetti();
 
@@ -1124,17 +1244,29 @@
     });
 
     // Shared Result renderer
-    function renderResultUI(winner, points, allInvalidated) {
+    function renderResultUI(winner, score, allInvalidated, opts) {
+        const scroll = !opts || opts.scroll !== false;
         resultTime.textContent = state.endTimeStr;
 
         let winnerHtml = '';
         if (winner) {
             winnerHtml += `<div class="winner-name">🎉 ${escapeHtml(winner.name)} 🎉</div>`;
-            if (points === 2) {
-                winnerHtml += `<div class="winner-points">💥 TOUT PILE — 2 POINTS !</div>`;
-            } else {
-                winnerHtml += `<div class="winner-points">+${points} point</div>`;
+
+            const total = score ? score.total : 1;
+            winnerHtml += `<div class="winner-points">+${total} point${total > 1 ? 's' : ''}</div>`;
+
+            // Détail du barème : les joueurs doivent voir d'où viennent les points
+            if (score) {
+                const parts = [];
+                const mult = multiplierLabel(state.multiplier);
+                parts.push(mult ? `victoire ×${state.multiplier} (${score.base})` : `victoire (1)`);
+                if (score.toutPile) parts.push(`💎 tout pile (+${score.toutPile})`);
+                if (score.combo) parts.push(`🔥 feu sacré (+${score.combo})`);
+                if (parts.length > 1) {
+                    winnerHtml += `<div class="winner-breakdown">${escapeHtml(parts.join('  ·  '))}</div>`;
+                }
             }
+
             if (allInvalidated) {
                 winnerHtml += `<div class="all-invalidated-note">Toutes les heures dépassées — heure la plus tardive gagne</div>`;
             }
@@ -1166,30 +1298,81 @@
         resultSection.style.display = 'block';
         finSection.style.display = 'none';
 
-        // Scroll
-        resultSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (scroll) {
+            resultSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
     }
 
-    // Determine and display for Supabase (completed episodes)
-    async function determineWinner() {
-        if (!state.endTime && state.endTime !== 0) return;
+    // Quel épisode est actuellement affiché comme « terminé » ?
+    // Évite de relancer les confettis et le défilement à chaque synchronisation.
+    let _resultShownFor = null;
 
-        const { winner, points, allInvalidated } = computeWinner(state.bets, state.endTime);
-        renderResultUI(winner, points, allInvalidated);
-        spawnConfetti();
+    /**
+     * Affiche ou masque le résultat en fonction de l'état synchronisé.
+     *
+     * Appelée à CHAQUE synchronisation : c'est ce qui fait que les joueurs
+     * voient le vainqueur au moment où l'admin appuie sur FIN, au lieu de
+     * devoir recharger la page.
+     */
+    function syncResultView() {
+        const ended = state.gameEnded && state.endTime !== null && state.bets.length > 0;
+
+        if (!ended) {
+            resultSection.style.display = 'none';
+            _resultShownFor = null;
+            return;
+        }
+
+        // Le serveur a déjà tranché : on affiche SON verdict, pas un recalcul.
+        const dbWinner = state.bets.find(b => b.isWinner);
+        const winner = dbWinner || computeWinner(state.bets, state.endTime).winner;
+        const allInvalidated = state.bets.every(b => b.minutes < state.endTime);
+
+        let score = null;
+        if (dbWinner) {
+            const toutPile = dbWinner.isToutPile ? POINTS_TOUT_PILE : 0;
+            const combo = dbWinner.comboBonus || 0;
+            score = {
+                base: (dbWinner.pointsWon || 0) - toutPile - combo,
+                toutPile,
+                combo,
+                total: dbWinner.pointsWon || 0
+            };
+        } else if (winner) {
+            // Mode local : le feu sacré n'est pas rejouable après un rechargement
+            score = computePoints(winner.minutes === state.endTime, state.multiplier, 0);
+        }
+
+        const isNew = _resultShownFor !== state.episodeId;
+        renderResultUI(winner, score, allInvalidated, { scroll: isNew });
+
+        if (isNew) {
+            _resultShownFor = state.episodeId;
+            spawnConfetti();
+        }
     }
 
     // ---- Leaderboard Rendering (Supabase vs Local) ----
+    // Portee du classement : la saison en cours, ou toutes saisons confondues.
+    let _lbScope = 'season';
+
     async function renderLeaderboard() {
         let players = [];
 
         if (state.isSupabaseConnected && supabase) {
             try {
-                // Fetch predictions and players
-                const { data, error } = await supabase
+                // Jointure interne sur episodes pour pouvoir filtrer la saison :
+                // sans ca le classement d'All Stars afficherait les points de
+                // la saison precedente.
+                let query = supabase
                     .from('predictions')
-                    .select('points_won, is_winner, is_tout_pile, gap_minutes, players(name)');
+                    .select('points_won, is_winner, is_tout_pile, combo_bonus, gap_minutes, players(name), episodes!inner(season)');
 
+                if (_lbScope === 'season') {
+                    query = query.eq('episodes.season', state.season);
+                }
+
+                const { data, error } = await query;
                 if (error) throw error;
 
                 // Group by player
@@ -1197,12 +1380,19 @@
                 data.forEach(p => {
                     const name = p.players.name;
                     if (!totals[name]) {
-                        totals[name] = { name, points: 0, wins: 0, toutpile: 0, totalGap: 0 };
+                        totals[name] = { name, points: 0, wins: 0, toutpile: 0, combo: 0, totalGap: 0, gapCount: 0 };
                     }
                     totals[name].points += p.points_won;
                     if (p.is_winner) totals[name].wins += 1;
                     if (p.is_tout_pile) totals[name].toutpile += 1;
-                    if (p.is_winner && p.gap_minutes != null) totals[name].totalGap += p.gap_minutes;
+                    totals[name].combo += p.combo_bonus || 0;
+                    // L'ecart est enregistre pour TOUS les parieurs : la precision
+                    // moyenne devient une vraie statistique, et le departage
+                    // separe enfin deux joueurs a zero victoire.
+                    if (p.gap_minutes != null) {
+                        totals[name].totalGap += p.gap_minutes;
+                        totals[name].gapCount += 1;
+                    }
                 });
 
                 players = Object.values(totals);
@@ -1217,40 +1407,61 @@
                 points: localLb[name].points || 0,
                 wins: localLb[name].wins || 0,
                 toutpile: localLb[name].toutpile || 0,
-                totalGap: localLb[name].totalGap || 0
+                combo: localLb[name].combo || 0,
+                totalGap: localLb[name].totalGap || 0,
+                gapCount: localLb[name].gapCount || 0
             }));
         }
 
+        players.forEach(p => {
+            p.avgGap = p.gapCount > 0 ? p.totalGap / p.gapCount : null;
+        });
+
+        // La bascule de portée s'affiche même sans données : c'est le seul
+        // moyen d'aller voir l'historique des saisons précédentes.
+        const scopeHtml = `
+            <div class="lb-scope" role="group" aria-label="Portée du classement">
+                <button class="lb-scope-btn ${_lbScope === 'season' ? 'active' : ''}" data-scope="season">${escapeHtml(SEASON_LABEL)}</button>
+                <button class="lb-scope-btn ${_lbScope === 'all' ? 'active' : ''}" data-scope="all">Toutes saisons</button>
+            </div>
+        `;
+
         if (players.length === 0) {
             leaderboardContainer.innerHTML = `
+                ${scopeHtml}
                 <div class="empty-state">
                     <div class="empty-icon">📊</div>
-                    <p>Aucune partie jouée pour l'instant.</p>
+                    <p>${_lbScope === 'season'
+                        ? `Aucun point marqué sur ${escapeHtml(SEASON_LABEL)}.<br>Tout le monde est à égalité !`
+                        : `Aucune partie jouée pour l'instant.`}</p>
                 </div>
             `;
             return;
         }
 
-        // Sort: Points desc → Wins desc → Tout pile desc → Écart moyen asc (plus proche = mieux)
+        // Points → Victoires → Tout pile → Précision moyenne (plus proche = mieux)
         players.sort((a, b) => {
             if (b.points !== a.points) return b.points - a.points;
             if (b.wins !== a.wins) return b.wins - a.wins;
             if (b.toutpile !== a.toutpile) return b.toutpile - a.toutpile;
-            const aAvg = a.wins > 0 ? a.totalGap / a.wins : 9999;
-            const bAvg = b.wins > 0 ? b.totalGap / b.wins : 9999;
+            const aAvg = a.avgGap === null ? Infinity : a.avgGap;
+            const bAvg = b.avgGap === null ? Infinity : b.avgGap;
             if (aAvg !== bAvg) return aAvg - bAvg;
             return a.name.localeCompare(b.name);
         });
 
         let html = `
+            ${scopeHtml}
             <table class="leaderboard-table">
                 <thead>
                     <tr>
                         <th>Rang</th>
                         <th>Joueur</th>
                         <th class="lb-col-center">Points</th>
-                        <th class="lb-col-center">Victoires</th>
-                        <th class="lb-col-center">Tout Pile</th>
+                        <th class="lb-col-center"><span class="lb-full">Victoires</span><span class="lb-short" title="Victoires">🏆</span></th>
+                        <th class="lb-col-center" title="Tout pile">💎</th>
+                        <th class="lb-col-center" title="Bonus de feu sacré cumulé">🔥</th>
+                        <th class="lb-col-center" title="Écart moyen entre le pari et l'heure réelle">Précision</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1260,6 +1471,7 @@
             const rank = idx + 1;
             let rankClass = '';
             if (rank <= 3) rankClass = `rank-${rank}`;
+            const precision = p.avgGap === null ? '—' : p.avgGap.toFixed(1);
 
             html += `
                 <tr>
@@ -1268,6 +1480,8 @@
                     <td class="lb-points lb-col-center">${p.points}</td>
                     <td class="lb-victories lb-col-center">${p.wins}</td>
                     <td class="lb-toutpile lb-col-center">${p.toutpile}</td>
+                    <td class="lb-combo lb-col-center">${p.combo || '—'}</td>
+                    <td class="lb-precision lb-col-center">${escapeHtml(precision)}<span class="lb-unit"> min</span></td>
                 </tr>
             `;
         });
@@ -1277,8 +1491,8 @@
             </table>
         `;
 
-        if (isAdmin) {
-            html += `<button class="btn-clear-lb" id="btnClearLb">Réinitialiser le classement général</button>`;
+        if (isAdmin && _lbScope === 'season') {
+            html += `<button class="btn-clear-lb" id="btnClearLb">Réinitialiser les points de ${escapeHtml(SEASON_LABEL)}</button>`;
         }
 
         leaderboardContainer.innerHTML = html;
@@ -1286,14 +1500,26 @@
 
     // Event delegation for leaderboard clear button (avoids re-attaching listeners)
     leaderboardContainer.addEventListener('click', async (e) => {
+        const scopeBtn = e.target.closest('.lb-scope-btn');
+        if (scopeBtn) {
+            const scope = scopeBtn.dataset.scope;
+            if (scope && scope !== _lbScope) {
+                _lbScope = scope;
+                renderLeaderboard();
+            }
+            return;
+        }
+
         const btn = e.target.closest('#btnClearLb');
         if (!btn || !isAdmin) return;
 
-        if (confirm('⚠️ Voulez-vous vraiment réinitialiser tout le classement général à zéro ?')) {
+        if (confirm(`⚠️ Remettre à zéro tous les points de ${SEASON_LABEL} ?\n\nLes pronostics sont conservés, seuls les scores sont effacés. Les autres saisons ne sont pas touchées.`)) {
             if (state.isSupabaseConnected && supabase) {
                 try {
                     // Reset scores on all predictions without deleting the history via RPC
-                    const { error } = await supabase.rpc('admin_reset_leaderboard');
+                    const { error } = await supabase.rpc('admin_reset_leaderboard', {
+                        p_pw: adminPw(), p_season: state.season
+                    });
                     if (error) throw error;
                     await doSyncWithSupabase();
                 } catch (e) {
@@ -1307,8 +1533,15 @@
     });
 
     // ---- Admin password verification ----
+    // Le mot de passe est conservé pour la session : chaque fonction admin
+    // le revérifie EN BASE. Sans lui, aucune écriture privilégiée n'est
+    // possible, même en appelant les RPC à la main depuis la console.
+    function adminPw() {
+        return sessionStorage.getItem('jdh_admin_pw') || '';
+    }
+
     async function verifyAdminAccess() {
-        if (sessionStorage.getItem('jdh_admin_verified') === 'true') return true;
+        if (adminPw()) return true;
         const pw = prompt('Mot de passe administrateur :');
         if (!pw) return false;
         if (state.isSupabaseConnected && supabase) {
@@ -1316,7 +1549,7 @@
                 const { data, error } = await supabase.rpc('verify_admin_password', { pw });
                 if (error) throw error;
                 if (data === true) {
-                    sessionStorage.setItem('jdh_admin_verified', 'true');
+                    sessionStorage.setItem('jdh_admin_pw', pw);
                     return true;
                 }
                 alert('Mot de passe incorrect.');
@@ -1327,9 +1560,20 @@
                 return false;
             }
         }
-        // Offline fallback: accept any non-empty password (admin can manage local game)
-        sessionStorage.setItem('jdh_admin_verified', 'true');
+        // Hors ligne : la partie locale n'a pas d'enjeu partagé
+        sessionStorage.setItem('jdh_admin_pw', pw);
         return true;
+    }
+
+    /** Signale un refus côté serveur de façon lisible. */
+    function reportAdminError(e, fallback) {
+        const msg = (e && (e.message || e.hint)) || '';
+        if (/administrateur refusé/i.test(msg)) {
+            sessionStorage.removeItem('jdh_admin_pw');
+            alert('Mot de passe administrateur refusé. Rechargez la page pour ressaisir.');
+        } else {
+            alert(msg ? `${fallback}\n\n${msg}` : fallback);
+        }
     }
 
     // ---- Admin Episode Actions ----
@@ -1351,7 +1595,9 @@
             if (state.isSupabaseConnected && supabase) {
                 try {
                     // Activate or create the episode using the admin RPC
-                    let { error: rpcError } = await supabase.rpc('admin_activate_episode', { ep_number: val });
+                    let { error: rpcError } = await supabase.rpc('admin_activate_episode', {
+                        p_pw: adminPw(), p_season: CURRENT_SEASON, p_number: val
+                    });
                     if (rpcError) throw rpcError;
                     await doSyncWithSupabase();
                 } catch (e) {
@@ -1364,13 +1610,45 @@
             }
         });
 
+        // Coefficient de l'episode : verrouille en base des qu'un pari existe,
+        // pour qu'on ne puisse pas changer l'enjeu apres l'ouverture des paris.
+        if (btnMultiplierSave) {
+            btnMultiplierSave.addEventListener('click', async () => {
+                const mult = parseInt(multiplierInput.value, 10);
+                if (isNaN(mult) || mult < 1 || mult > 5) return;
+
+                if (!state.isSupabaseConnected || !supabase || !state.episodeId) {
+                    state.multiplier = mult;
+                    renderEpisodeLabel();
+                    saveActiveGameLocally();
+                    return;
+                }
+
+                try {
+                    const { error } = await supabase.rpc('admin_set_multiplier', {
+                        p_pw: adminPw(), p_ep_id: state.episodeId, p_multiplier: mult
+                    });
+                    if (error) throw error;
+                    await doSyncWithSupabase();
+                    alert(mult > 1
+                        ? `Coefficient x${mult} appliqu\u00e9 \u00e0 l'\u00e9pisode ${state.episodeNumber}.\nAnnonce-le dans le groupe AVANT 21h.`
+                        : `\u00c9pisode ${state.episodeNumber} remis \u00e0 un coefficient normal.`);
+                } catch (e) {
+                    console.error('Impossible de r\u00e9gler le coefficient', e);
+                    reportAdminError(e, 'Le coefficient n\u2019a pas pu \u00eatre modifi\u00e9.');
+                }
+            });
+        }
+
         // Code generator button
         const btnGenCode = document.getElementById('btnGenCode');
         if (btnGenCode) {
             btnGenCode.addEventListener('click', async () => {
                 const newCode = String(Math.floor(1000 + Math.random() * 9000));
                 if (state.isSupabaseConnected && supabase && state.episodeId) {
-                    const { error } = await supabase.rpc('admin_update_bet_code', { ep_id: state.episodeId, new_code: newCode });
+                    const { error } = await supabase.rpc('admin_update_bet_code', {
+                        p_pw: adminPw(), p_ep_id: state.episodeId, p_code: newCode
+                    });
                     if (error) throw error;
                     await doSyncWithSupabase();
                     alert(`Nouveau code : ${newCode}\nEnvoie-le dans le groupe !`);
@@ -1385,7 +1663,10 @@
                 if (confirm(`Lancer l'épisode ${nextEp} ? Cela va clôturer l'épisode actuel.`)) {
                     try {
                         const newCode = String(Math.floor(1000 + Math.random() * 9000));
-                        const { error } = await supabase.rpc('admin_create_episode', { ep_number: nextEp, ep_bet_code: newCode });
+                        const { error } = await supabase.rpc('admin_create_episode', {
+                            p_pw: adminPw(), p_season: CURRENT_SEASON, p_number: nextEp,
+                            p_bet_code: newCode, p_multiplier: 1
+                        });
                         if (error) throw error;
                         await doSyncWithSupabase();
                         alert(`Épisode ${nextEp} lancé !\nCode de partie : ${newCode}\nEnvoie-le dans le groupe !`);
@@ -1400,14 +1681,14 @@
                     state.endTime = null;
                     state.endTimeStr = null;
                     state.episodeNumber = nextEp;
+                    state.multiplier = 1;
                     saveActiveGameLocally();
                     markRenderDirty();
                     renderPlayers();
                     renderTimeline();
                     showSections();
                     updateClock();
-                    episodeLabel.textContent = `ÉPISODE ${nextEp}`;
-                    episodeNumberInput.value = nextEp;
+                    renderEpisodeLabel();
                 }
             }
         });
@@ -1421,11 +1702,15 @@
         if (state.isSupabaseConnected && supabase && state.episodeId) {
             try {
                 // Delete all predictions of this episode via RPC
-                const { error: predError } = await supabase.rpc('admin_delete_episode_predictions', { ep_id: state.episodeId });
+                const { error: predError } = await supabase.rpc('admin_delete_episode_predictions', {
+                    p_pw: adminPw(), p_ep_id: state.episodeId
+                });
                 if (predError) throw predError;
 
                 // Reopen episode via RPC
-                const { error: epError } = await supabase.rpc('admin_reactivate_episode', { ep_id: state.episodeId });
+                const { error: epError } = await supabase.rpc('admin_reactivate_episode', {
+                    p_pw: adminPw(), p_ep_id: state.episodeId
+                });
                 if (epError) throw epError;
 
                 await doSyncWithSupabase();
@@ -1498,7 +1783,7 @@
 
             // Check if any bets have been newly invalidated — only then re-render
             const currentInvalidatedSet = state.bets
-                .filter(b => b.minutes <= now.totalMinutes)
+                .filter(b => b.minutes < now.totalMinutes)
                 .map(b => b.id)
                 .join(',');
 
@@ -1517,10 +1802,7 @@
         loadActiveGameLocally();
         
         // 2. Setup dynamic view from localStorage
-        episodeLabel.textContent = `ÉPISODE ${state.episodeNumber}`;
-        if (wantsAdmin) {
-            episodeNumberInput.value = state.episodeNumber;
-        }
+        renderEpisodeLabel();
 
         // 3. Connect to Supabase if configured
         await initSupabase();
@@ -1543,7 +1825,7 @@
         renderLeaderboard();
 
         if (state.gameEnded && state.endTimeStr) {
-            determineWinner();
+            syncResultView();
         }
 
         // Start ticking every second

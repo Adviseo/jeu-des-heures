@@ -32,11 +32,28 @@ Deviner l'heure à laquelle Denis annonce l'émission de la semaine suivante. Le
 | Feu sacré 🔥 — 2ᵉ victoire d'affilée | +1 (jamais multiplié) |
 | Feu sacré 🔥 — 3ᵉ et au-delà | +2 (plafond) |
 
-Coefficients : ×1 par défaut, **×2 à l'épreuve d'orientation**, **×3 en finale**. Le coefficient ne multiplie que la victoire de base — sinon un tout pile en finale vaudrait plus que la saison entière d'un bon joueur.
+Coefficients : ×1 par défaut, **×2 à l'épreuve d'orientation**, **×3 à la finale**. Le coefficient ne multiplie que la victoire de base — sinon un tout pile en finale vaudrait plus que la saison entière d'un bon joueur. Il est annoncé avant 21h et se verrouille dès le premier pari. Si orientation et poteaux tombent le même soir, seul le dernier épisode compte ×3.
 
-Départage du classement : points → victoires → tout pile → précision (écart moyen le plus faible).
+**Le soir de la finale**, il n'y a pas d'épisode suivant à annoncer : on parie sur le moment où Denis prononce le nom du vainqueur.
+
+Départage du classement : points → victoires → tout pile → précision (écart moyen le plus faible, calculé sur **tous** les paris et pas seulement les victoires).
 
 Les paris ouvrent à 21h00 et se ferment à 22h00 pile (vérifié côté serveur). Chaque heure ne peut être prise que par un seul joueur, et chacun peut modifier son pari jusqu'à la fermeture.
+
+## Paris à l'aveugle
+
+Les heures des autres joueurs sont **masquées jusqu'à 22h00**, puis tout se révèle d'un coup.
+
+Sans ça, le jeu a un biais exploitable : comme on gagne à être le plus proche *sans dépasser*, celui qui parie en dernier lit le peloton et se place une minute en dessous, position qui domine tous les autres.
+
+Le masquage est fait **en base**, pas dans l'interface : la table `predictions` est lisible avec la clé `anon`, qui est publique. Concrètement :
+
+- la colonne `predicted_time` n'est plus lisible par `anon` dans la table
+- la lecture passe par la vue `predictions_visible`, qui renvoie `NULL` tant que les paris sont ouverts
+- personne ne peut voir les heures avant 22h00, **pas même l'admin**
+- chaque joueur revoit **son propre** pari, mémorisé dans son navigateur
+
+Limite connue : l'unicité des heures reste vérifiée côté serveur, donc un joueur obstiné peut apprendre qu'une minute est prise en essayant de la réserver. C'est inévitable tant que deux joueurs ne peuvent pas choisir la même heure.
 
 ## Saisons
 
@@ -55,6 +72,21 @@ Ajouter `?admin=true` à l'URL et entrer le mot de passe admin lorsque demandé.
 
 Le mot de passe n'est **pas** un simple filtre d'affichage : chaque fonction `admin_*` le revérifie en base avant d'écrire quoi que ce soit. Sans lui, aucune écriture privilégiée n'est possible, même en appelant les RPC à la main depuis la console du navigateur.
 
+Il est stocké haché (bcrypt) dans `app_secrets`, une table dont la RLS est activée sans aucune politique : seules les fonctions `SECURITY DEFINER` y accèdent. Pour le changer, dans Supabase → SQL Editor :
+
+```sql
+INSERT INTO public.app_secrets (key, value)
+VALUES ('admin_pw_hash',
+        extensions.crypt('VOTRE-NOUVEAU-MOT-DE-PASSE', extensions.gen_salt('bf', 10)))
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();
+```
+
+Tant qu'aucun hash n'est enregistré, `verify_admin_password` retombe sur l'ancienne implémentation (`verify_admin_password_legacy`), ce qui évite toute coupure d'accès. Une fois le hash posé et l'accès vérifié, supprimez cette fonction de repli — elle contient encore un mot de passe en clair :
+
+```sql
+DROP FUNCTION public.verify_admin_password_legacy(text);
+```
+
 La barre admin donne accès à :
 
 - **Épisode actif** — activer ou créer un épisode de la saison en cours
@@ -72,5 +104,5 @@ La barre admin donne accès à :
 ## Notes de sécurité connues
 
 - L'identité d'un joueur est son nom, saisi librement : n'importe qui peut taper le nom d'un autre et modifier son pari avant 22h. Le code à 4 chiffres protège l'accès au groupe, pas les paris individuels.
-- `verify_admin_password` est appelable par `anon` (c'est le portail d'entrée du mode admin) : le mot de passe est donc testable par le réseau et doit être long et aléatoire.
-- La table `predictions` est lisible publiquement : masquer les heures côté interface ne suffirait pas à faire de vrais paris à l'aveugle, il faudrait les masquer côté serveur.
+- `verify_admin_password` est appelable par `anon` (c'est le portail d'entrée du mode admin) : le mot de passe est donc testable par le réseau et doit être long et aléatoire. Le hachage bcrypt rend chaque tentative coûteuse (~100 ms), ce qui limite fortement une attaque par force brute.
+- Le bot Discord (`dafawn/jdh_bot`) est un **second moteur de jeu**, avec sa propre base Supabase et son propre classement. Son barème est aligné sur celui décrit ici, mais les deux systèmes tiennent des comptes séparés : si une soirée est jouée sur les deux, les points divergent.

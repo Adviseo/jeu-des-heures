@@ -394,3 +394,146 @@ SELECT p.proname, pg_get_function_identity_arguments(p.oid) AS args,
 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = 'public' AND p.proname LIKE 'admin%'
 ORDER BY p.proname;
+
+
+-- =========================================================
+-- 11. PARIS À L'AVEUGLE JUSQU'À 22H00
+-- =========================================================
+-- Masquer côté interface ne suffirait pas : la table predictions est
+-- lisible avec la clé anon, qui est publique. Les heures sont donc
+-- masquées EN BASE — personne, pas même l'admin, ne peut les lire
+-- avant la fermeture des paris.
+
+-- Instant de révélation : le premier 22h00 (heure de Paris) au moment
+-- de la création de l'épisode ou après.
+CREATE OR REPLACE FUNCTION public.bets_reveal_at(p_created TIMESTAMP WITH TIME ZONE)
+RETURNS TIMESTAMP WITH TIME ZONE
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT ((
+        CASE WHEN (p_created AT TIME ZONE 'Europe/Paris')::time < '22:00'
+             THEN date_trunc('day', p_created AT TIME ZONE 'Europe/Paris')
+             ELSE date_trunc('day', p_created AT TIME ZONE 'Europe/Paris') + interval '1 day'
+        END
+    ) + interval '22 hours') AT TIME ZONE 'Europe/Paris';
+$$;
+
+GRANT EXECUTE ON FUNCTION public.bets_reveal_at(TIMESTAMP WITH TIME ZONE) TO anon, authenticated;
+
+-- Vue de lecture : l'heure n'apparaît qu'une fois les paris fermés (ou
+-- l'épisode clôturé). Elle porte aussi le nom du joueur et la saison,
+-- ce qui évite au client toute jointure sur la table brute.
+CREATE OR REPLACE VIEW public.predictions_visible AS
+SELECT
+    p.id, p.episode_id, p.player_id,
+    pl.name AS player_name,
+    e.season, e.number AS episode_number, e.multiplier,
+    (e.status = 'completed' OR now() >= public.bets_reveal_at(e.created_at)) AS revealed,
+    CASE WHEN e.status = 'completed' OR now() >= public.bets_reveal_at(e.created_at)
+         THEN p.predicted_time ELSE NULL END AS predicted_time,
+    p.points_won, p.is_winner, p.is_tout_pile, p.combo_bonus, p.gap_minutes, p.created_at
+FROM public.predictions p
+JOIN public.episodes e  ON e.id = p.episode_id
+JOIN public.players  pl ON pl.id = p.player_id;
+
+GRANT SELECT ON public.predictions_visible TO anon, authenticated;
+
+-- La colonne predicted_time n'est plus lisible dans la table brute.
+-- Les autres colonnes le restent, pour que les UPDATE filtrés par id et
+-- les politiques RLS continuent de fonctionner.
+REVOKE SELECT ON public.predictions FROM anon, authenticated;
+GRANT SELECT (id, episode_id, player_id, points_won, is_winner,
+              is_tout_pile, combo_bonus, gap_minutes, created_at)
+    ON public.predictions TO anon, authenticated;
+
+-- Écrire son pari reste possible : c'est la lecture qui est bridée.
+GRANT INSERT (episode_id, player_id, predicted_time) ON public.predictions TO anon, authenticated;
+GRANT UPDATE (predicted_time) ON public.predictions TO anon, authenticated;
+
+
+-- =========================================================
+-- 12. MOT DE PASSE ADMIN HACHÉ (bcrypt)
+-- =========================================================
+-- Le mot de passe était comparé à une chaîne littérale dans le corps
+-- d'une fonction SQL : toute personne ayant un accès lecture au projet
+-- pouvait le lire.
+--
+-- Cette migration ne lit PAS le mot de passe en place : l'ancienne
+-- implémentation est renommée et sert de repli tant qu'aucun hash n'est
+-- enregistré. L'accès admin n'est donc jamais interrompu.
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
+
+-- Coffre applicatif : RLS activée SANS aucune politique, donc illisible
+-- par anon. Seules les fonctions SECURITY DEFINER y accèdent.
+CREATE TABLE IF NOT EXISTS public.app_secrets (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.app_secrets ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.app_secrets FROM anon, authenticated;
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'public' AND p.proname = 'verify_admin_password'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'public' AND p.proname = 'verify_admin_password_legacy'
+    ) THEN
+        ALTER FUNCTION public.verify_admin_password(text)
+            RENAME TO verify_admin_password_legacy;
+    END IF;
+END $$;
+
+REVOKE ALL ON FUNCTION public.verify_admin_password_legacy(text) FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.verify_admin_password(pw text)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions
+AS $$
+DECLARE
+    v_hash TEXT;
+BEGIN
+    IF pw IS NULL OR length(pw) = 0 THEN
+        RETURN FALSE;
+    END IF;
+
+    SELECT value INTO v_hash FROM public.app_secrets WHERE key = 'admin_pw_hash';
+
+    IF v_hash IS NOT NULL THEN
+        -- bcrypt : la comparaison prend ~100 ms, ce qui rend une attaque
+        -- par force brute via le réseau très coûteuse.
+        RETURN extensions.crypt(pw, v_hash) = v_hash;
+    END IF;
+
+    -- Aucun hash posé : on garde le comportement existant.
+    RETURN public.verify_admin_password_legacy(pw);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.verify_admin_password(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.verify_admin_password(text) TO anon, authenticated;
+
+-- ---------------------------------------------------------
+-- À FAIRE UNE FOIS, À LA MAIN, dans Supabase → SQL Editor.
+-- Choisissez un mot de passe long et aléatoire (il reste testable par
+-- le réseau), et ne le committez jamais :
+--
+--   INSERT INTO public.app_secrets (key, value)
+--   VALUES ('admin_pw_hash',
+--           extensions.crypt('VOTRE-NOUVEAU-MOT-DE-PASSE', extensions.gen_salt('bf', 10)))
+--   ON CONFLICT (key) DO UPDATE
+--     SET value = EXCLUDED.value, updated_at = now();
+--
+-- Une fois le hash posé et l'accès admin vérifié, l'ancienne fonction
+-- ne sert plus à rien et peut disparaître avec son mot de passe en clair :
+--
+--   DROP FUNCTION public.verify_admin_password_legacy(text);
+-- ---------------------------------------------------------

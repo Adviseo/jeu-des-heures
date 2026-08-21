@@ -25,6 +25,7 @@
         episodeNumber: 1,   // Default episode number
         episodeId: null,    // Supabase episode UUID
         multiplier: 1,      // coefficient de l'épisode (épreuves reines)
+        revealed: true,     // les heures des autres sont-elles visibles ?
         isSupabaseConnected: false,
         dbTimeOffset: 0,    // Offset between client time and DB time in milliseconds
         betCode: null       // 4-digit code required to submit a bet (null = no code required)
@@ -111,6 +112,8 @@
     const multiplierInput = $('#episodeMultiplier');
     const btnMultiplierSave = $('#btnMultiplierSave');
     const multiplierBadge = $('#multiplierBadge');
+    const blindNotice = $('#blindNotice');
+    const betHint = $('#betHint');
     
     // Supabase config elements
     const betCodeInput = $('#betCode');
@@ -183,7 +186,7 @@
     function getTimelineEnd() {
         let end = TIMELINE_END_DEFAULT;
         state.bets.forEach(b => {
-            if (b.minutes + 15 > end) end = b.minutes + 15;
+            if (b.minutes !== null && b.minutes + 15 > end) end = b.minutes + 15;
         });
         return end;
     }
@@ -199,6 +202,30 @@
     /** Mark that a full re-render of players/timeline is needed */
     function markRenderDirty() {
         _renderDirty = true;
+    }
+
+    // ---- Mémoire de son propre pari ----
+    // Les heures sont masquées en base jusqu'à 22h00, y compris la sienne.
+    // On garde donc SON pari en local pour pouvoir le lui réafficher : c'est
+    // sa donnée, personne d'autre ne la voit.
+    function rememberMyBet(name, time) {
+        if (!state.episodeId) return;
+        try {
+            localStorage.setItem('jdh_my_bet_' + state.episodeId,
+                JSON.stringify({ name: name.trim(), time }));
+        } catch (e) { /* stockage indisponible */ }
+    }
+
+    function getMyBet() {
+        if (!state.episodeId) return null;
+        try {
+            return JSON.parse(localStorage.getItem('jdh_my_bet_' + state.episodeId) || 'null');
+        } catch (e) { return null; }
+    }
+
+    function isMyBet(bet) {
+        const mine = getMyBet();
+        return !!mine && mine.name.toLowerCase() === bet.name.toLowerCase();
     }
 
     /** Couleur stable, dérivée du nom : elle ne bouge plus d'une sync à l'autre. */
@@ -370,6 +397,9 @@
                     
                     // Check if local storage migration is needed
                     checkMigrationNeeded();
+
+                    // Repère historique : une seule fois, il ne bouge pas en soirée
+                    renderBetHint();
                 } else {
                     throw new Error("Could not fetch server time");
                 }
@@ -603,24 +633,36 @@
                 renderEpisodeLabel();
 
                 // 2. Fetch predictions for this episode
+                // Lecture via predictions_visible : l'heure y est NULL tant que
+                // les paris sont ouverts. Le masquage est fait en base, pas ici.
                 let { data: preds, error: predError } = await supabase
-                    .from('predictions')
-                    .select('*, players(name)')
+                    .from('predictions_visible')
+                    .select('*')
                     .eq('episode_id', state.episodeId);
 
                 if (predError) throw predError;
 
+                state.revealed = preds.length === 0 ? true : preds.every(p => p.revealed);
+
+                const mine = getMyBet();
                 state.bets = preds.map((p) => {
-                    // Format time HH:MM from HH:MM:SS
-                    const formattedTime = p.predicted_time.substring(0, 5);
+                    let formattedTime = p.predicted_time ? p.predicted_time.substring(0, 5) : null;
+                    const hidden = !formattedTime;
+
+                    // Son propre pari reste lisible pour soi, depuis le local
+                    if (hidden && mine && mine.name.toLowerCase() === p.player_name.toLowerCase()) {
+                        formattedTime = mine.time;
+                    }
+
                     return {
                         id: p.id,
-                        name: p.players.name,
+                        name: p.player_name,
                         time: formattedTime,
-                        minutes: timeToMinutes(formattedTime),
+                        minutes: formattedTime ? timeToMinutes(formattedTime) : null,
+                        hidden,
                         // Couleur dérivée du nom : elle suit le joueur toute la
                         // saison au lieu de changer à chaque synchronisation.
-                        color: colorForName(p.players.name),
+                        color: colorForName(p.player_name),
                         isWinner: p.is_winner,
                         isToutPile: p.is_tout_pile,
                         comboBonus: p.combo_bonus || 0,
@@ -628,7 +670,13 @@
                     };
                 });
 
-                state.bets.sort((a, b) => a.minutes - b.minutes);
+                // Heures cachées en dernier, puis par ordre chronologique
+                state.bets.sort((a, b) => {
+                    if (a.minutes === null && b.minutes === null) return a.name.localeCompare(b.name);
+                    if (a.minutes === null) return 1;
+                    if (b.minutes === null) return -1;
+                    return a.minutes - b.minutes;
+                });
             } else {
                 // No episodes at all
                 state.episodeId = null;
@@ -638,6 +686,7 @@
                 state.endTimeStr = null;
                 state.betCode = null;
                 state.multiplier = 1;
+                state.revealed = true;
                 episodeLabel.textContent = `${SEASON_LABEL} — AUCUN ÉPISODE`;
             }
 
@@ -776,6 +825,44 @@
         }
     }
 
+    // ---- Repère historique dans le formulaire ----
+    // Les nouveaux joueurs arrivent sans aucune idée de la fenêtre utile.
+    // On leur montre ce que les saisons passées ont donné : ça évite les
+    // paris à 23h50 qui n'ont aucune chance.
+    async function renderBetHint() {
+        if (!betHint) return;
+        if (!state.isSupabaseConnected || !supabase) { betHint.textContent = ''; return; }
+
+        try {
+            const { data, error } = await supabase
+                .from('episodes')
+                .select('announced_at')
+                .not('announced_at', 'is', null);
+
+            if (error) throw error;
+            if (!data || data.length === 0) { betHint.textContent = ''; return; }
+
+            const mins = data.map(e => {
+                const hhmm = new Date(e.announced_at).toLocaleTimeString('fr-FR', {
+                    timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit'
+                });
+                return timeToMinutes(hhmm);
+            }).filter(m => Number.isFinite(m));
+
+            if (mins.length === 0) { betHint.textContent = ''; return; }
+
+            const min = Math.min(...mins);
+            const max = Math.max(...mins);
+            const moy = Math.round(mins.reduce((a, b) => a + b, 0) / mins.length);
+
+            betHint.textContent = `Historique sur ${mins.length} épisode${mins.length > 1 ? 's' : ''} : `
+                + `de ${minutesToTime(min)} à ${minutesToTime(max)}, moyenne ${minutesToTime(moy)}.`;
+        } catch (e) {
+            console.warn('Repère historique indisponible', e);
+            betHint.textContent = '';
+        }
+    }
+
     // ---- Clock UI Updater ----
     function updateClock() {
         const now = getReliableTime();
@@ -844,6 +931,7 @@
                         }
                         return;
                     }
+                    rememberMyBet(name, time);
                     await doSyncWithSupabase();
                 } else {
                     // 1. Insert player or fetch existing
@@ -890,6 +978,7 @@
                         }
                         return;
                     }
+                    rememberMyBet(name, time);
                     await doSyncWithSupabase();
                 }
             } catch (e) {
@@ -1043,7 +1132,7 @@
 
         // Check if invalidated set changed (optimization for tick())
         const currentInvalidatedSet = state.bets
-            .filter(b => !state.gameEnded && b.minutes < now.totalMinutes)
+            .filter(b => !state.gameEnded && b.minutes !== null && b.minutes < now.totalMinutes)
             .map(b => b.id)
             .join(',');
 
@@ -1056,25 +1145,28 @@
         
         let html = '';
         state.bets.forEach((bet) => {
-            const isInvalidated = !state.gameEnded && bet.minutes < now.totalMinutes;
+            const masked = bet.minutes === null;
+            const isInvalidated = !state.gameEnded && !masked && bet.minutes < now.totalMinutes;
             const initial = bet.name.charAt(0).toUpperCase();
             const safeName = escapeHtml(bet.name);
-            const safeTime = escapeHtml(bet.time);
+            const mineTag = (bet.hidden && !masked) ? ' <span class="player-mine">ton pari</span>' : '';
+            const safeTime = masked ? '••:••' : escapeHtml(bet.time);
             const safeColor = escapeAttr(bet.color);
             const safeId = escapeAttr(String(bet.id));
 
             html += `
-                <div class="player-row ${isInvalidated ? 'invalidated' : ''}" data-id="${safeId}" role="listitem">
+                <div class="player-row ${isInvalidated ? 'invalidated' : ''} ${masked ? 'masked' : ''}" data-id="${safeId}" role="listitem">
                     <div class="player-info">
                         <div class="player-avatar" style="background: ${safeColor}">${initial}</div>
-                        <span class="player-name">${safeName}</span>
+                        <span class="player-name">${safeName}${mineTag}</span>
                     </div>
                     <div class="player-right">
                         <span class="player-time">${safeTime}</span>
                         ${!state.gameEnded ? `
+                            ${masked ? `<span class="player-status hidden-status">🔒 Caché</span>` : `
                             <span class="player-status ${isInvalidated ? 'invalid' : 'valid'}">
                                 ${isInvalidated ? '⏰ Dépassé' : '✓ En jeu'}
-                            </span>
+                            </span>`}
                             ${now.clockMinutes < BET_WINDOW_END && now.clockMinutes >= BET_WINDOW_START ? `
                                 <button class="btn-edit" data-player-name="${escapeAttr(bet.name)}" data-bet-time="${safeTime}" title="Modifier le pronostic de ${safeName}" aria-label="Modifier ${safeName}">✏️</button>
                             ` : ''}
@@ -1091,7 +1183,12 @@
     // ---- Sections Visibility ----
     function showSections() {
         const hasBets = state.bets.length > 0;
-        timelineSection.style.display = hasBets ? 'block' : 'none';
+        // Tant que les heures sont masquées, la timeline n'a rien à montrer
+        const anyVisible = state.bets.some(b => b.minutes !== null);
+        timelineSection.style.display = (hasBets && anyVisible) ? 'block' : 'none';
+        if (blindNotice) {
+            blindNotice.style.display = (!state.revealed && !state.gameEnded) ? 'block' : 'none';
+        }
         
         // Admin controls visibility
         finSection.style.display = (hasBets && !state.gameEnded && isAdmin) ? 'block' : 'none';
@@ -1126,7 +1223,7 @@
 
         // Markers
         let markersHtml = '';
-        state.bets.forEach((bet, i) => {
+        state.bets.filter(b => b.minutes !== null).forEach((bet, i) => {
             const pct = getTimelinePercent(bet.minutes);
             const isInvalidated = !state.gameEnded && bet.minutes < now.totalMinutes;
             const position = i % 2 === 0 ? 'top' : 'bottom';
@@ -1275,7 +1372,8 @@
 
         // Details
         let detailsHtml = '';
-        const allSorted = [...state.bets].sort((a, b) => a.minutes - b.minutes);
+        const allSorted = [...state.bets].filter(b => b.minutes !== null)
+            .sort((a, b) => a.minutes - b.minutes);
         allSorted.forEach(bet => {
             const isValid = bet.minutes >= state.endTime;
             const isWinner = winner && bet.name === winner.name;
@@ -1365,11 +1463,11 @@
                 // sans ca le classement d'All Stars afficherait les points de
                 // la saison precedente.
                 let query = supabase
-                    .from('predictions')
-                    .select('points_won, is_winner, is_tout_pile, combo_bonus, gap_minutes, players(name), episodes!inner(season)');
+                    .from('predictions_visible')
+                    .select('points_won, is_winner, is_tout_pile, combo_bonus, gap_minutes, player_name, season');
 
                 if (_lbScope === 'season') {
-                    query = query.eq('episodes.season', state.season);
+                    query = query.eq('season', state.season);
                 }
 
                 const { data, error } = await query;
@@ -1378,7 +1476,7 @@
                 // Group by player
                 const totals = {};
                 data.forEach(p => {
-                    const name = p.players.name;
+                    const name = p.player_name;
                     if (!totals[name]) {
                         totals[name] = { name, points: 0, wins: 0, toutpile: 0, combo: 0, totalGap: 0, gapCount: 0 };
                     }
@@ -1783,7 +1881,7 @@
 
             // Check if any bets have been newly invalidated — only then re-render
             const currentInvalidatedSet = state.bets
-                .filter(b => b.minutes < now.totalMinutes)
+                .filter(b => b.minutes !== null && b.minutes < now.totalMinutes)
                 .map(b => b.id)
                 .join(',');
 

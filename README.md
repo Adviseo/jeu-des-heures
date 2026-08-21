@@ -38,6 +38,8 @@ Coefficients : ×1 par défaut, **×2 à l'épreuve d'orientation**, **×3 à la
 
 Départage du classement : points → victoires → tout pile → précision (écart moyen le plus faible, calculé sur **tous** les paris et pas seulement les victoires).
 
+**Référence horaire : le direct TF1+.** C'est l'heure de l'annonce sur TF1+ qui fait foi, pas celle de la TNT — les deux flux ne sont pas synchrones, et l'écart peut atteindre la minute. La saison 1 a été mesurée sur la TNT : le repère historique affiché dans le formulaire porte donc un léger biais systématique tant que la saison 2 n'a pas assez d'épisodes pour parler d'elle-même.
+
 Les paris ouvrent à 21h00 et se ferment à 22h00 pile (vérifié côté serveur). Chaque heure ne peut être prise que par un seul joueur, et chacun peut modifier son pari jusqu'à la fermeture.
 
 ## Paris à l'aveugle

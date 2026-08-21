@@ -66,7 +66,7 @@ La barre admin donne accès à :
 ## Déploiement
 
 - **Supabase** héberge la base et les fonctions. L'URL et la clé `anon` sont en dur dans `app.js` (la clé `anon` est publique par design ; la RLS et le mot de passe admin assurent la sécurité).
-- **GitHub Pages** sert les fichiers statiques depuis la branche `main` → https://adviseo.github.io/jeu-des-heures/
+- **GitHub Pages** sert les fichiers statiques depuis la branche `main` → https://dafawn.github.io/jeu-des-heures/
 - Un push sur `main` suffit à publier.
 
 ## Notes de sécurité connues

@@ -2,6 +2,8 @@
 
 Application web statique pour parier sur l'heure à laquelle Denis annonce l'épisode suivant. Multi-joueurs en direct via Supabase.
 
+C'est **la seule** implémentation du Jeu des Heures : un bot Discord tenait autrefois un classement parallèle, il a été retiré.
+
 ## Lancer localement
 
 C'est un site statique pur (HTML/CSS/JS, pas de build). N'importe quel serveur statique fait l'affaire :
@@ -92,4 +94,4 @@ La barre admin donne accès à :
 
 - L'identité d'un joueur est son nom, saisi librement : n'importe qui peut taper le nom d'un autre et modifier son pari avant la fermeture. Le code à 4 chiffres protège l'accès au groupe, pas les paris individuels.
 - `verify_admin_password` est appelable par `anon` (c'est le portail d'entrée du mode admin) : le mot de passe est donc testable par le réseau et doit être long et aléatoire. Le hachage bcrypt rend chaque tentative coûteuse (~100 ms), ce qui limite fortement une attaque par force brute.
-- Le bot Discord (`dafawn/jdh_bot`) est un **second moteur de jeu**, avec sa propre base Supabase et son propre classement. Son barème est aligné sur celui décrit ici, mais les deux systèmes tiennent des comptes séparés : si une soirée est jouée sur les deux, les points divergent.
+- Le bot Discord (`dafawn/jdh_bot`) était un **second moteur de jeu**, avec sa propre base et son propre classement — donc un second registre de points, incompatible avec celui-ci. Il a été retiré en août 2026 : base vidée, dépôt archivé. **Le Jeu des Heures ne vit plus que dans cette application.**

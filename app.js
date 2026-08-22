@@ -116,6 +116,7 @@
     const btnMultiplierSave = $('#btnMultiplierSave');
     const multiplierBadge = $('#multiplierBadge');
     const betHint = $('#betHint');
+    const timeField = $('#timeField');
     
     // Supabase config elements
     const betCodeInput = $('#betCode');
@@ -776,6 +777,7 @@
     function resetBetForm() {
         playerName.value = '';
         betTime.value = '';
+        updateTimePlaceholder();
         if (betCodeInput) betCodeInput.value = '';
         formError.textContent = '';
         const btnAdd = $('#btnAdd');
@@ -784,6 +786,20 @@
             btnAdd.classList.remove('editing');
         }
     }
+
+    /**
+     * Android n'affiche rien du tout dans un <input type="time"> vide :
+     * pas de « --:-- », pas d'icône. Le champ ressemble à une case morte.
+     * On affiche donc notre propre substitut tant qu'aucune heure n'est
+     * choisie, masqué dès qu'il y en a une.
+     */
+    function updateTimePlaceholder() {
+        if (!timeField) return;
+        timeField.classList.toggle('is-empty', !betTime.value);
+    }
+
+    betTime.addEventListener('input', updateTimePlaceholder);
+    betTime.addEventListener('change', updateTimePlaceholder);
 
     // ---- Repère historique dans le formulaire ----
     // Les nouveaux joueurs arrivent sans aucune idée de la fenêtre utile.
@@ -815,8 +831,8 @@
             const max = Math.max(...mins);
             const moy = Math.round(mins.reduce((a, b) => a + b, 0) / mins.length);
 
-            betHint.textContent = `Historique sur ${mins.length} épisode${mins.length > 1 ? 's' : ''} : `
-                + `de ${minutesToTime(min)} à ${minutesToTime(max)}, moyenne ${minutesToTime(moy)}.`;
+            betHint.textContent = `${mins.length} épisodes : ${minutesToTime(min)} → ${minutesToTime(max)}`
+                + `, moyenne ${minutesToTime(moy)}`;
         } catch (e) {
             console.warn('Repère historique indisponible', e);
             betHint.textContent = '';
@@ -1059,6 +1075,7 @@
             if (pName && bTime) {
                 playerName.value = pName;
                 betTime.value = bTime;
+                updateTimePlaceholder();
                 
                 // Scroll layout to bet form
                 betSection.scrollIntoView({ behavior: 'smooth', block: 'center' });

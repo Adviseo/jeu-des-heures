@@ -397,59 +397,65 @@ ORDER BY p.proname;
 
 
 -- =========================================================
--- 11. PARIS À L'AVEUGLE JUSQU'À 22H00
+-- 11. VUE DE LECTURE + FENÊTRE DE PARIS
 -- =========================================================
--- Masquer côté interface ne suffirait pas : la table predictions est
--- lisible avec la clé anon, qui est publique. Les heures sont donc
--- masquées EN BASE — personne, pas même l'admin, ne peut les lire
--- avant la fermeture des paris.
+-- Note : les paris à l'aveugle (heures masquées jusqu'à la fermeture)
+-- ont été essayés puis abandonnés. Se placer juste devant ou juste
+-- derrière un autre joueur EST le plaisir du jeu ; et avec l'unicité
+-- des heures, masquer les paris transformait la mise en devinette par
+-- essais-erreurs. Le déséquilibre du dernier parieur est traité en
+-- resserrant la fenêtre.
 
--- Instant de révélation : le premier 22h00 (heure de Paris) au moment
--- de la création de l'épisode ou après.
-CREATE OR REPLACE FUNCTION public.bets_reveal_at(p_created TIMESTAMP WITH TIME ZONE)
-RETURNS TIMESTAMP WITH TIME ZONE
-LANGUAGE sql
-STABLE
-AS $$
-    SELECT ((
-        CASE WHEN (p_created AT TIME ZONE 'Europe/Paris')::time < '22:00'
-             THEN date_trunc('day', p_created AT TIME ZONE 'Europe/Paris')
-             ELSE date_trunc('day', p_created AT TIME ZONE 'Europe/Paris') + interval '1 day'
-        END
-    ) + interval '22 hours') AT TIME ZONE 'Europe/Paris';
-$$;
-
-GRANT EXECUTE ON FUNCTION public.bets_reveal_at(TIMESTAMP WITH TIME ZONE) TO anon, authenticated;
-
--- Vue de lecture : l'heure n'apparaît qu'une fois les paris fermés (ou
--- l'épisode clôturé). Elle porte aussi le nom du joueur et la saison,
--- ce qui évite au client toute jointure sur la table brute.
+-- La vue reste le chemin de lecture : le nom du joueur et la saison y
+-- sont déjà joints, ce qui évite au client toute jointure imbriquée.
 CREATE OR REPLACE VIEW public.predictions_visible AS
 SELECT
     p.id, p.episode_id, p.player_id,
     pl.name AS player_name,
     e.season, e.number AS episode_number, e.multiplier,
-    (e.status = 'completed' OR now() >= public.bets_reveal_at(e.created_at)) AS revealed,
-    CASE WHEN e.status = 'completed' OR now() >= public.bets_reveal_at(e.created_at)
-         THEN p.predicted_time ELSE NULL END AS predicted_time,
+    TRUE AS revealed,
+    p.predicted_time,
     p.points_won, p.is_winner, p.is_tout_pile, p.combo_bonus, p.gap_minutes, p.created_at
 FROM public.predictions p
 JOIN public.episodes e  ON e.id = p.episode_id
 JOIN public.players  pl ON pl.id = p.player_id;
 
 GRANT SELECT ON public.predictions_visible TO anon, authenticated;
+GRANT SELECT ON public.predictions TO anon, authenticated;
 
--- La colonne predicted_time n'est plus lisible dans la table brute.
--- Les autres colonnes le restent, pour que les UPDATE filtrés par id et
--- les politiques RLS continuent de fonctionner.
-REVOKE SELECT ON public.predictions FROM anon, authenticated;
-GRANT SELECT (id, episode_id, player_id, points_won, is_winner,
-              is_tout_pile, combo_bonus, gap_minutes, created_at)
-    ON public.predictions TO anon, authenticated;
+-- Fenêtre de paris : 21h00 → 21h30.
+-- Sur les 23 paris réellement enregistrés la saison passée : médiane à
+-- 21:09, 83 % avant 21:30, aucun après 21:44. Le dernier quart d'heure
+-- ne servait qu'à attendre que les autres se découvrent.
+-- ⚠️ À changer ici ET dans BET_WINDOW_END côté app.js.
+CREATE OR REPLACE FUNCTION public.check_bet_window()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    paris_time TIME;
+    episode_status TEXT;
+BEGIN
+    IF TG_OP = 'UPDATE' AND OLD.predicted_time = NEW.predicted_time THEN
+        RETURN NEW;
+    END IF;
 
--- Écrire son pari reste possible : c'est la lecture qui est bridée.
-GRANT INSERT (episode_id, player_id, predicted_time) ON public.predictions TO anon, authenticated;
-GRANT UPDATE (predicted_time) ON public.predictions TO anon, authenticated;
+    SELECT e.status INTO episode_status
+    FROM public.episodes e
+    WHERE e.id = NEW.episode_id;
+
+    IF episode_status != 'active' THEN
+        RAISE EXCEPTION 'L''épisode n''est pas actif';
+    END IF;
+
+    paris_time := (now() AT TIME ZONE 'Europe/Paris')::TIME;
+    IF paris_time < '21:00:00' OR paris_time >= '21:30:00' THEN
+        RAISE EXCEPTION 'Les paris ne sont autorisés qu''entre 21h00 et 21h30';
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
 
 
 -- =========================================================

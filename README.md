@@ -40,22 +40,7 @@ Départage du classement : points → victoires → tout pile → précision (é
 
 **Référence horaire : le direct TF1+.** C'est l'heure de l'annonce sur TF1+ qui fait foi, pas celle de la TNT — les deux flux ne sont pas synchrones, et l'écart peut atteindre la minute. La saison 1 a été mesurée sur la TNT : le repère historique affiché dans le formulaire porte donc un léger biais systématique tant que la saison 2 n'a pas assez d'épisodes pour parler d'elle-même.
 
-Les paris ouvrent à 21h00 et se ferment à 22h00 pile (vérifié côté serveur). Chaque heure ne peut être prise que par un seul joueur, et chacun peut modifier son pari jusqu'à la fermeture.
-
-## Paris à l'aveugle
-
-Les heures des autres joueurs sont **masquées jusqu'à 22h00**, puis tout se révèle d'un coup.
-
-Sans ça, le jeu a un biais exploitable : comme on gagne à être le plus proche *sans dépasser*, celui qui parie en dernier lit le peloton et se place une minute en dessous, position qui domine tous les autres.
-
-Le masquage est fait **en base**, pas dans l'interface : la table `predictions` est lisible avec la clé `anon`, qui est publique. Concrètement :
-
-- la colonne `predicted_time` n'est plus lisible par `anon` dans la table
-- la lecture passe par la vue `predictions_visible`, qui renvoie `NULL` tant que les paris sont ouverts
-- personne ne peut voir les heures avant 22h00, **pas même l'admin**
-- chaque joueur revoit **son propre** pari, mémorisé dans son navigateur
-
-Limite connue : l'unicité des heures reste vérifiée côté serveur, donc un joueur obstiné peut apprendre qu'une minute est prise en essayant de la réserver. C'est inévitable tant que deux joueurs ne peuvent pas choisir la même heure.
+Les paris ouvrent à 21h00 et se ferment à **21h30** pile (vérifié côté serveur). La fenêtre est courte volontairement : la saison passée, la médiane des paris était à 21:09 et personne n'a jamais parié après 21:44 — le dernier quart d'heure ne servait qu'à attendre que les autres se découvrent. Pour la changer, il faut la modifier à deux endroits : `BET_WINDOW_END` dans `app.js` et le trigger `check_bet_window` en base. Chaque heure ne peut être prise que par un seul joueur, et chacun peut modifier son pari jusqu'à la fermeture.
 
 ## Saisons
 
@@ -105,6 +90,6 @@ La barre admin donne accès à :
 
 ## Notes de sécurité connues
 
-- L'identité d'un joueur est son nom, saisi librement : n'importe qui peut taper le nom d'un autre et modifier son pari avant 22h. Le code à 4 chiffres protège l'accès au groupe, pas les paris individuels.
+- L'identité d'un joueur est son nom, saisi librement : n'importe qui peut taper le nom d'un autre et modifier son pari avant la fermeture. Le code à 4 chiffres protège l'accès au groupe, pas les paris individuels.
 - `verify_admin_password` est appelable par `anon` (c'est le portail d'entrée du mode admin) : le mot de passe est donc testable par le réseau et doit être long et aléatoire. Le hachage bcrypt rend chaque tentative coûteuse (~100 ms), ce qui limite fortement une attaque par force brute.
 - Le bot Discord (`dafawn/jdh_bot`) est un **second moteur de jeu**, avec sa propre base Supabase et son propre classement. Son barème est aligné sur celui décrit ici, mais les deux systèmes tiennent des comptes séparés : si une soirée est jouée sur les deux, les points divergent.

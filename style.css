@@ -1538,54 +1538,10 @@ details[open] .rules-summary::before {
     .lb-short { display: inline; }
     .leaderboard-table .lb-unit { display: none; }
 }
-
-/* ============================================
-   Paris à l'aveugle
-   ============================================ */
-
-.blind-notice {
-    margin: 0 0 1.2rem;
-    padding: 0.7rem 0.9rem;
-    font-size: 0.82rem;
-    line-height: 1.5;
-    color: var(--text-secondary);
-    background: rgba(41, 128, 185, 0.1);
-    border: 1px solid rgba(41, 128, 185, 0.28);
-    border-radius: var(--radius-sm);
-}
-
-.blind-notice strong {
-    color: var(--text-primary);
-}
-
+/* Repère historique sous le champ heure */
 .bet-hint {
     margin: 0.45rem 0 0;
     font-size: 0.74rem;
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
-}
-
-/* Une heure masquée ne doit pas ressembler à une heure dépassée :
-   pas de rouge, pas de barré — juste un secret bien gardé. */
-.player-row.masked .player-time {
-    color: var(--text-muted);
-    letter-spacing: 0.12em;
-}
-
-.player-status.hidden-status {
-    color: var(--accent-ocean);
-    background: rgba(41, 128, 185, 0.12);
-}
-
-.player-mine {
-    margin-left: 0.45rem;
-    padding: 0.1rem 0.4rem;
-    font-size: 0.62rem;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--accent-tropical);
-    background: rgba(0, 212, 170, 0.12);
-    border-radius: 10px;
-    white-space: nowrap;
 }

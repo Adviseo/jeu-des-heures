@@ -543,3 +543,35 @@ GRANT EXECUTE ON FUNCTION public.verify_admin_password(text) TO anon, authentica
 --
 --   DROP FUNCTION public.verify_admin_password_legacy(text);
 -- ---------------------------------------------------------
+
+
+-- =========================================================
+-- 13. DURCISSEMENT SIGNALÉ PAR L'ADVISOR SUPABASE
+-- =========================================================
+
+-- predictions_visible s'exécutait avec les droits de son propriétaire
+-- (comportement par défaut d'une vue), donc en contournant la RLS des
+-- tables sous-jacentes. Sans conséquence tant que leurs politiques de
+-- lecture sont ouvertes — mais si on resserrait un jour la RLS sur
+-- predictions, la vue continuerait de tout exposer sans prévenir.
+ALTER VIEW public.predictions_visible SET (security_invoker = on);
+
+-- search_path figé : sans lui, une fonction résout ses appels selon le
+-- search_path de l'appelant, qui peut y glisser un schéma contenant
+-- une fonction homonyme.
+ALTER FUNCTION public.game_minutes(TIME) SET search_path = public;
+ALTER FUNCTION public.check_bet_window() SET search_path = public;
+ALTER FUNCTION public.get_server_time()  SET search_path = public;
+
+-- ---------------------------------------------------------
+-- Ce que l'advisor signale encore, et qui est VOULU :
+--
+-- · « RLS Enabled No Policy » sur app_secrets — c'est exactement le
+--   dispositif : RLS active sans aucune politique = personne ne lit la
+--   table, sauf les fonctions SECURITY DEFINER.
+--
+-- · « Public Can Execute SECURITY DEFINER Function » sur les fonctions
+--   admin_* — l'app n'utilise pas Supabase Auth, donc ces fonctions
+--   doivent rester appelables par anon. La protection n'est pas le
+--   GRANT mais le mot de passe vérifié à l'intérieur de chacune.
+-- ---------------------------------------------------------

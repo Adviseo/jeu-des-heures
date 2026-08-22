@@ -87,7 +87,9 @@ La barre admin donne accès à :
 ## Déploiement
 
 - **Supabase** héberge la base et les fonctions. L'URL et la clé `anon` sont en dur dans `app.js` (la clé `anon` est publique par design ; la RLS et le mot de passe admin assurent la sécurité).
-- **GitHub Pages** sert les fichiers statiques depuis la branche `main` → https://dafawn.github.io/jeu-des-heures/
+- **GitHub Pages** sert les fichiers statiques depuis la branche `main`
+- Adresse du jeu : **https://jdh.christophe.online/** — sous-domaine de `christophe.online`, branché par un CNAME vers `dafawn.github.io`. Le fichier `CNAME` à la racine du dépôt est ce qui indique à GitHub Pages de répondre sous ce nom : **ne le supprimez pas**.
+- L'ancienne adresse `dafawn.github.io/jeu-des-heures/` redirige vers le domaine personnalisé, les liens déjà partagés restent valides.
 - Un push sur `main` suffit à publier.
 
 ## Notes de sécurité connues

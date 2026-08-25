@@ -1371,9 +1371,21 @@ details[open] .rules-summary::before {
     .bet-form {
         flex-direction: column;
     }
-    
+
     .form-group {
         min-width: 100%;
+    }
+
+    /* iOS impose au champ heure sa largeur native, que « width: 100% » ne
+       reprend pas : le champ dépassait le nom et le bouton par la droite,
+       jusqu'à sortir de la carte. Neutraliser l'apparence native le fait
+       rentrer dans le rang. Cantonné au mobile : sur grand écran, l'icône
+       d'horloge du navigateur reste utile et dépend de cette apparence. */
+    .time-field input[type="time"] {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 100%;
+        min-width: 0;
     }
     
     .btn-add {

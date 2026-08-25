@@ -34,7 +34,11 @@
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <!-- Supabase JS Client -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <link rel="stylesheet" href="style.css">
+    <!-- Version dans l'URL : GitHub Pages sert ces fichiers avec dix minutes
+         de cache. Sans ce marqueur, un joueur venu plus tôt dans la soirée
+         peut rejouer une ancienne feuille de style. À incrémenter à chaque
+         correctif qui doit absolument être vu le soir même. -->
+    <link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
     <!-- Particle background -->
@@ -228,6 +232,6 @@
         <p>Le Jeu des Heures — Koh Lanta 2026 🔥</p>
     </footer>
 
-    <script src="app.js"></script>
+    <script src="app.js?v=2"></script>
 </body>
 </html>

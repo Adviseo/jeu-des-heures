@@ -1576,9 +1576,46 @@ details[open] .rules-summary::before {
 
 /* Champ heure : substitut visible tant qu'aucune heure n'est choisie.
    Android laisse le champ complètement vide, sans « --:-- » ni icône. */
+/* La boîte visible du champ heure est portée par le CONTENEUR, pas par
+   l'input. Sur iOS, l'input ajoute ses deux rembourrages de 1 rem par-dessus
+   sa largeur de 100 % au lieu de les y inclure : il dépassait le nom et le
+   bouton d'environ 32 px et sortait de la carte. En donnant le fond, la
+   bordure et l'arrondi au conteneur — et en lui faisant masquer ce qui
+   déborde — la largeur du champ ne dépend plus de la façon dont le
+   navigateur mesure l'input. « overflow: hidden » est ce qui compte le
+   plus : il ramène à zéro la largeur minimale que ce bloc impose à ses
+   parents, donc l'input ne peut plus élargir personne. */
 .time-field {
     position: relative;
     width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    min-height: 2.95rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+/* Le halo de focus suit le conteneur, puisque c'est lui qu'on voit. */
+.time-field:focus-within {
+    border-color: var(--accent-fire);
+    box-shadow: 0 0 0 3px rgba(255, 107, 43, 0.15);
+}
+
+.time-field input[type="time"] {
+    flex: 1;
+    min-width: 0;
+    background: none;
+    border: none;
+    border-radius: 0;
+    min-height: 0;
+}
+
+.time-field input[type="time"]:focus {
+    box-shadow: none;
 }
 
 .time-placeholder {

@@ -470,9 +470,23 @@
         return null;
     }
 
+    // L'heure du jeu est celle de Paris, jamais celle de l'appareil.
+    // getHours() lit le fuseau du telephone : un joueur en vacances au
+    // Portugal voyait 20h10 quand il etait 21h10 ici, et se faisait refuser
+    // ses paris toute la soiree, dans les deux sens, par un message faux.
+    // L'ecart d'horloge, lui, reste corrige par state.dbTimeOffset.
+    const PARIS_CLOCK = new Intl.DateTimeFormat('fr-FR', {
+        timeZone: 'Europe/Paris', hourCycle: 'h23',
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+    });
+
     /** Décrit un instant sur le même axe continu que timeToMinutes(). */
     function describeTime(d) {
-        const h = d.getHours(), m = d.getMinutes(), s = d.getSeconds();
+        const parts = {};
+        for (const part of PARIS_CLOCK.formatToParts(d)) parts[part.type] = part.value;
+        const h = Number(parts.hour) % 24,
+              m = Number(parts.minute),
+              s = Number(parts.second);
         const pad = (n) => String(n).padStart(2, '0');
         return {
             hours: h,
@@ -844,6 +858,16 @@
         const now = getReliableTime();
         liveClock.textContent = now.formatted;
 
+        // Le seul temoin de connexion vit dans la barre admin, invisible pour
+        // un joueur. Sans ce message, une coupure au chargement le laisse
+        // parier dans le vide : son pari s'affiche « En jeu » et ne part
+        // jamais. Il n'y a pas de reprise automatique, d'ou « recharge ».
+        if (!state.isSupabaseConnected) {
+            clockStatus.textContent = 'HORS LIGNE — ton pari ne part pas. Recharge la page.';
+            clockStatus.className = 'clock-status offline';
+            return;
+        }
+
         if (state.gameEnded) {
             clockStatus.textContent = 'Partie terminée';
             clockStatus.className = 'clock-status';
@@ -957,7 +981,16 @@
                 }
             } catch (e) {
                 console.error("Erreur d'ajout ou modification de pronostic", e);
-                showError("Erreur serveur lors de la soumission.");
+                // Le serveur dit deja pourquoi il refuse : le cacher derriere
+                // « erreur serveur » fait croire a un incident reseau, et le
+                // joueur s'acharne au lieu de comprendre que c'est ferme.
+                const msg = (e && e.message) || '';
+                showError(/paris ne sont autoris|pisode n'est pas actif/i.test(msg)
+                    ? msg
+                    : "Erreur serveur lors de la soumission.");
+                // On sort avant resetBetForm() : sur un echec, l'heure saisie
+                // doit rester dans le champ, comme dans le cas du doublon.
+                return;
             }
         } else {
             // Local fallback Mode
@@ -1247,7 +1280,15 @@
                 await doSyncWithSupabase();
             } catch (e) {
                 console.error("Erreur lors de la clôture de l'épisode", e);
-                reportAdminError(e, "La clôture a échoué. L'épisode est resté ouvert, vous pouvez réessayer.");
+                // Si la reponse s'est perdue alors que la transaction etait
+                // passee, l'episode EST clos. Annoncer un echec pousse a
+                // chercher « Nouvelle partie », qui detruit les pronostics.
+                if (/d.j. cl.tur/i.test((e && e.message) || '')) {
+                    await doSyncWithSupabase();
+                    alert("L'épisode était déjà clôturé — le résultat est affiché.");
+                } else {
+                    reportAdminError(e, "La clôture a échoué. L'épisode est resté ouvert, vous pouvez réessayer.");
+                }
             } finally {
                 btnFin.disabled = false;
             }

@@ -575,3 +575,24 @@ ALTER FUNCTION public.get_server_time()  SET search_path = public;
 --   doivent rester appelables par anon. La protection n'est pas le
 --   GRANT mais le mot de passe vérifié à l'intérieur de chacune.
 -- ---------------------------------------------------------
+
+-- =========================================================
+-- 25 AOÛT 2026 — LE PARI N'APPARTIENT QU'À SON HEURE
+-- =========================================================
+-- La politique predictions_update_active_episode autorise anon à écrire
+-- sur un pronostic tant que l'épisode est ouvert, et check_bet_window
+-- sort par le haut dès que l'heure ne change pas. Résultat : toutes les
+-- AUTRES colonnes restaient modifiables, à n'importe quelle heure du
+-- jour. On pouvait donc, entre l'annonce de Denis et le clic sur FIN,
+-- inscrire son propre nom sur le pronostic gagnant.
+--
+-- Le formulaire n'écrit jamais que l'heure ; on ne donne donc que
+-- l'heure. Le dépouillement et les fonctions admin sont SECURITY
+-- DEFINER : ils écrivent les points sans passer par ces droits.
+REVOKE UPDATE ON public.predictions FROM anon, authenticated;
+GRANT  UPDATE (predicted_time) ON public.predictions TO anon, authenticated;
+
+-- La vue est une jointure : elle n'est pas modifiable de toute façon.
+-- On retire les droits d'écriture pour que l'inventaire dise le vrai.
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE
+    ON public.predictions_visible FROM anon, authenticated;

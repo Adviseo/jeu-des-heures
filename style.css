@@ -462,6 +462,13 @@ body {
     color: var(--accent-tropical);
 }
 
+/* Hors ligne : le pari ne part pas. Ce message doit se voir tout de suite,
+   c'est le seul avertissement qu'un joueur recevra. */
+.clock-status.offline {
+    color: #ff6b4a;
+    font-weight: 700;
+}
+
 .clock-status.live::before {
     content: '';
     display: inline-block;
@@ -954,6 +961,15 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 
 .btn-fin:active {
     transform: scale(0.97);
+}
+
+/* Pendant l'envoi de la clôture : sans ça le bouton continue de pulser
+   comme s'il n'avait rien reçu, et on tape trois fois de plus. */
+.btn-fin:disabled {
+    animation: none;
+    opacity: 0.5;
+    cursor: wait;
+    transform: none;
 }
 
 .btn-fin-text {

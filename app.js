@@ -908,8 +908,28 @@
                             .select('id')
                             .single();
 
-                        if (insertPErr) throw insertPErr;
-                        playerId = newP.id;
+                        if (insertPErr) {
+                            // Deux envois partis presque en meme temps — un
+                            // double appui sur un reseau lent — cherchent le
+                            // nom, ne le trouvent ni l'un ni l'autre, et le
+                            // creent tous les deux. Le second bute sur
+                            // l'unicite du nom. Le joueur existe pourtant : on
+                            // le relit et on continue, au lieu d'abandonner
+                            // sur une « erreur serveur » qui n'en est pas une.
+                            if (insertPErr.code !== '23505') throw insertPErr;
+
+                            const { data: rattrape, error: relireErr } = await supabase
+                                .from('players')
+                                .select('id')
+                                .eq('name', name)
+                                .maybeSingle();
+
+                            if (relireErr) throw relireErr;
+                            if (!rattrape) throw insertPErr;
+                            playerId = rattrape.id;
+                        } else {
+                            playerId = newP.id;
+                        }
                     } else {
                         playerId = player.id;
                     }

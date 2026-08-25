@@ -115,7 +115,6 @@
     const multiplierInput = $('#episodeMultiplier');
     const btnMultiplierSave = $('#btnMultiplierSave');
     const multiplierBadge = $('#multiplierBadge');
-    const betHint = $('#betHint');
     const timeField = $('#timeField');
     
     // Supabase config elements
@@ -376,9 +375,6 @@
                     
                     // Check if local storage migration is needed
                     checkMigrationNeeded();
-
-                    // Repère historique : une seule fois, il ne bouge pas en soirée
-                    renderBetHint();
                 } else {
                     throw new Error("Could not fetch server time");
                 }
@@ -814,44 +810,6 @@
 
     betTime.addEventListener('input', updateTimePlaceholder);
     betTime.addEventListener('change', updateTimePlaceholder);
-
-    // ---- Repère historique dans le formulaire ----
-    // Les nouveaux joueurs arrivent sans aucune idée de la fenêtre utile.
-    // On leur montre ce que les saisons passées ont donné : ça évite les
-    // paris à 23h50 qui n'ont aucune chance.
-    async function renderBetHint() {
-        if (!betHint) return;
-        if (!state.isSupabaseConnected || !supabase) { betHint.textContent = ''; return; }
-
-        try {
-            const { data, error } = await supabase
-                .from('episodes')
-                .select('announced_at')
-                .not('announced_at', 'is', null);
-
-            if (error) throw error;
-            if (!data || data.length === 0) { betHint.textContent = ''; return; }
-
-            const mins = data.map(e => {
-                const hhmm = new Date(e.announced_at).toLocaleTimeString('fr-FR', {
-                    timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit'
-                });
-                return timeToMinutes(hhmm);
-            }).filter(m => Number.isFinite(m));
-
-            if (mins.length === 0) { betHint.textContent = ''; return; }
-
-            const min = Math.min(...mins);
-            const max = Math.max(...mins);
-            const moy = Math.round(mins.reduce((a, b) => a + b, 0) / mins.length);
-
-            betHint.textContent = `${mins.length} épisodes : ${minutesToTime(min)} → ${minutesToTime(max)}`
-                + `, moyenne ${minutesToTime(moy)}`;
-        } catch (e) {
-            console.warn('Repère historique indisponible', e);
-            betHint.textContent = '';
-        }
-    }
 
     // ---- Clock UI Updater ----
     function updateClock() {

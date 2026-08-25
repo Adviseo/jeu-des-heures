@@ -40,7 +40,7 @@ Coefficients : ×1 par défaut, **×2 à l'épreuve d'orientation**, **×3 à la
 
 Départage du classement : points → victoires → tout pile → précision (écart moyen le plus faible, calculé sur **tous** les paris et pas seulement les victoires).
 
-**Référence horaire : le direct TF1+.** C'est l'heure de l'annonce sur TF1+ qui fait foi, pas celle de la TNT — les deux flux ne sont pas synchrones, et l'écart peut atteindre la minute. La saison 1 a été mesurée sur la TNT : le repère historique affiché dans le formulaire porte donc un léger biais systématique tant que la saison 2 n'a pas assez d'épisodes pour parler d'elle-même.
+**Référence horaire : le direct TF1+.** C'est l'heure de l'annonce sur TF1+ qui fait foi, pas celle de la TNT — les deux flux ne sont pas synchrones, et l'écart peut atteindre la minute. À garder en tête si on compare les saisons entre elles : la saison 1 a été mesurée sur la TNT, ses heures d'annonce portent donc un léger biais systématique.
 
 Les paris ouvrent à 21h00 et se ferment à **21h30** pile (vérifié côté serveur). La fenêtre est courte volontairement : la saison passée, la médiane des paris était à 21:09 et personne n'a jamais parié après 21:44 — le dernier quart d'heure ne servait qu'à attendre que les autres se découvrent. Pour la changer, il faut la modifier à deux endroits : `BET_WINDOW_END` dans `app.js` et le trigger `check_bet_window` en base. Chaque heure ne peut être prise que par un seul joueur, et chacun peut modifier son pari jusqu'à la fermeture.
 

@@ -1554,41 +1554,12 @@ details[open] .rules-summary::before {
     .lb-short { display: inline; }
     .leaderboard-table .lb-unit { display: none; }
 }
-/* Repère historique sous le champ heure */
-.bet-hint {
-    margin: 0.45rem 0 0;
-    font-size: 0.74rem;
-    color: var(--text-muted);
-    font-variant-numeric: tabular-nums;
-}
-
 /* Les trois contrôles n'ont pas la même hauteur naturelle (44,4 / 47,2 /
    42,4 px) : alignés par le bas, leurs sommets se décalaient de quelques
    pixels. On les met à la même hauteur. */
 .form-group input,
 .btn-add {
     min-height: 2.95rem;
-}
-
-/* Le formulaire aligne ses blocs par le bas. Un repère sous le seul champ
-   heure allongeait ce bloc et faisait remonter le champ par rapport au nom
-   et au bouton : on le sort du flux et on lui réserve sa bande. */
-@media (min-width: 601px) {
-    .form-group {
-        position: relative;
-    }
-
-    .bet-hint {
-        position: absolute;
-        top: calc(100% + 0.4rem);
-        left: 0;
-        right: 0;
-        margin: 0;
-    }
-
-    .form-error {
-        margin-top: 1.1rem;
-    }
 }
 
 /* Champ heure : substitut visible tant qu'aucune heure n'est choisie.
